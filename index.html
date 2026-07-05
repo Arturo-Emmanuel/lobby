@@ -237,6 +237,9 @@ input,select,textarea{font-family:inherit}
 
 .room-chat{background:var(--color-bg);min-height:0}
 .chat-scroll{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:14px}
+.dm-open{max-width:680px;margin:0 auto;height:100%;display:flex;flex-direction:column;min-height:0}
+.dm-open-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-shrink:0}
+.dm-thread{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0;overflow-y:auto;padding:6px}
 .msg{display:flex;gap:10px;max-width:78%}
 .msg .av{width:32px;height:32px;border-radius:50%;flex-shrink:0;object-fit:cover}
 .msg .bubble-wrap .who{font-size:12px;color:var(--color-muted);margin-bottom:3px}
@@ -868,11 +871,56 @@ const players=[
   {name:'KevPlays',game:'Minecraft · BedWars',compat:72,seed:'Kev',bg:'7b3dff',mode:'BedWars',style:'Casual',level:'Principiante',goals:['Ganar partidas'],rating:4.0,ratings:8},
 ];
 const friends=['Daniel_Mc','Sofi_Gamer','NotDiego'];
+
+/* ====== CAMBIO 2: USUARIOS REALES RECOMENDADOS ====== */
+/* Guardamos aquí los usuarios reales leídos de la base (para no leer cada vez). */
+let realPlayers=null;
+
+/* Compatibilidad simple: compara estilo y país entre yo y el otro usuario. */
+function calcCompat(otro){
+  let score=50; // base
+  if(otro.estilo && state.me.style && otro.estilo===state.me.style) score+=35; // mismo estilo suma harto
+  if(otro.pais && state.me.pais && otro.pais===state.me.pais) score+=15;       // mismo país suma un poco
+  return Math.min(99, score);
+}
+
+/* Lee los usuarios reales de la tabla perfiles (menos yo mismo) y les calcula compatibilidad. */
+async function cargarUsuariosReales(){
+  try {
+    const { data:{ user } } = await sb.auth.getUser();
+    const { data, error } = await sb.from('perfiles').select('*');
+    if(error) throw error;
+    if(!data) { realPlayers=[]; return; }
+    realPlayers = data
+      .filter(p => !user || p.id_usuario !== user.id)  // no me recomiendo a mí mismo
+      .map(p => ({
+        name: p.nombre || p.nick || 'Jugador',
+        game: p.estilo ? ('Estilo · ' + p.estilo) : 'Jugador de Lobby',
+        compat: calcCompat(p),
+        seed: p.nick || p.nombre || 'user',
+        bg: 'c84dff',
+        rating: p.reputacion || 5.0,
+        style: p.estilo || 'Chill',
+        real: true
+      }))
+      .sort((a,b)=> b.compat - a.compat); // más compatibles primero
+  } catch(e){
+    realPlayers = [];
+  }
+}
+
+/* Devuelve la lista para mostrar: reales primero, ejemplos como relleno. */
+function playersParaMostrar(limite){
+  const reales = realPlayers || [];
+  const combinados = [...reales, ...players]; // reales primero, luego ejemplos
+  return limite ? combinados.slice(0, limite) : combinados;
+}
+
 const av=(seed,bg)=>`https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${seed}&backgroundColor=${bg||'c84dff'}`;
 const compatClass=c=>c>=85?'high':c>=65?'mid':'';
 const compatLabel=c=>c>=85?'Muy compatible':c>=65?'Compatible':'Poco compatible';
 const compatColor=c=>c>=85?'var(--color-success)':c>=65?'var(--color-secondary)':'var(--color-muted)';
-const findPlayer=name=>players.find(p=>p.name===name)||{name,game:'Minecraft',compat:90,seed:name,bg:'c84dff',mode:'Survival',style:'Chill',level:'Medio',goals:['Construir'],rating:4.5,ratings:10};
+const findPlayer=name=>(realPlayers||[]).find(p=>p.name===name)||players.find(p=>p.name===name)||{name,game:'Minecraft',compat:90,seed:name,bg:'c84dff',mode:'Survival',style:'Chill',level:'Medio',goals:['Construir'],rating:4.5,ratings:10};
 const starStr=r=>{const f=Math.round(r);return '★'.repeat(f)+'☆'.repeat(5-f);};
 
 const dms={
@@ -966,6 +1014,10 @@ async function goApp(view){
     return;
   }
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById('app').classList.add('active');syncUserUI();seedNotifs();navTo(view);
+  /* Cargamos los usuarios reales en segundo plano y refrescamos la vista cuando lleguen */
+  cargarUsuariosReales().then(()=>{
+    if(state.view==='home'||state.view==='search') navTo(state.view);
+  });
 }
 function syncUserUI(){document.getElementById('sb-avatar').src=state.avatarUrl;document.getElementById('sb-username').textContent=state.displayName;}
 
@@ -1121,11 +1173,11 @@ function playerCard(p){
 const views={
   home:()=>`<div class="hero-line">¡Qué bueno verte, ${state.displayName.split('_')[0]||'Arturo'}! 👋</div><div class="hero-sub">Encuentra tu gente y juega sin límites.</div>
     <div class="sec-head"><div class="sec-title">Lobis recomendados para ti</div><a class="sec-link" onclick="navTo('lobis')">Ver todos →</a></div><div class="lobi-row">${lobis.map(lobiCard).join('')}</div>
-    <div class="sec-head"><div class="sec-title">Jugadores compatibles contigo</div><a class="sec-link" onclick="navTo('search')">Ver todos →</a></div><div class="player-grid">${players.map(playerCard).join('')}</div>
+    <div class="sec-head"><div class="sec-title">Jugadores compatibles contigo</div><a class="sec-link" onclick="navTo('search')">Ver todos →</a></div><div class="player-grid">${playersParaMostrar(6).map(playerCard).join('')}</div>
     <div class="cta-band"><div><h3>¿No sabes con quién jugar?</h3><p>Deja que Lobby encuentre tu mejor escuadra automáticamente.</p></div><button class="btn btn-primary" onclick="emparejar()">⚡ Emparejar ahora</button></div>`,
   search:()=>`<div class="hero-line">Buscar</div><div class="hero-sub">Filtra jugadores por modo, estilo y compatibilidad.</div>
     <div class="chip-grid" style="margin-bottom:22px"><button class="chip sel">Todos</button><button class="chip">Survival</button><button class="chip">BedWars</button><button class="chip">PvP</button><button class="chip">Constructor</button><button class="chip">Chill</button></div>
-    <div class="player-grid">${players.map(playerCard).join('')}</div>`,
+    <div class="player-grid">${playersParaMostrar().map(playerCard).join('')}</div>`,
   friends:()=>{
     const reqs=state.notifs.filter(n=>n.type==='friend'&&!n.handled);
     const reqHtml=reqs.length?reqs.map(n=>`<div class="player-card"><img class="av" src="${av(n.seed,n.bg)}"><div class="pinfo"><div class="pname">${n.from}</div><div class="pgame">Quiere ser tu amigo</div></div><div class="pactions"><button class="mini-btn" style="border-color:var(--color-success)" onclick="acceptFriend('${n.id}');navTo('friends')"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button><button class="mini-btn" onclick="rejectFriend('${n.id}');navTo('friends')"><svg fill="none" stroke="var(--color-danger)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div></div>`).join(''):'<div class="side-empty" style="max-width:400px">Sin solicitudes pendientes.</div>';
@@ -1143,15 +1195,15 @@ const views={
 
 function messagesView(){
   const names=Object.keys(dms);
-  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer"><img class="av" src="${av(p.seed,p.bg)}"><div class="pinfo"><div class="pname">${n}</div><div class="pgame">${last.from==='me'?'Tú: ':''}${last.img?'📷 Imagen':escapeHtml(last.text)}</div></div></div>`;}).join('');
+  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${last.img?'📷 Imagen':escapeHtml(last.text||'')}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer"><img class="av" src="${av(p.seed,p.bg)}"><div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
   if(!openDM)return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div><div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${list}</div>`;
   const p=findPlayer(openDM);
   const thread=dms[openDM].map(m=>renderDMmsg(m,p)).join('');
   const canInvite=state.currentLobi&&state.currentLobi.members.length<5&&friends.includes(openDM)&&!state.currentLobi.members.some(mm=>mm.name===openDM);
-  return `<div style="max-width:680px;margin:0 auto">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px"><button class="mini-btn" onclick="openDM=null;navTo('messages')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><img src="${av(p.seed,p.bg)}" style="width:42px;height:42px;border-radius:50%"><div style="flex:1"><div style="font-weight:700;font-size:16px">${openDM}</div><div style="font-size:12px;color:var(--color-success)">En línea</div></div>
+  return `<div class="dm-open">
+    <div class="dm-open-head"><button class="mini-btn" onclick="openDM=null;navTo('messages')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><img src="${av(p.seed,p.bg)}" style="width:42px;height:42px;border-radius:50%"><div style="flex:1"><div style="font-weight:700;font-size:16px">${openDM}</div><div style="font-size:12px;color:var(--color-success)">En línea</div></div>
       ${canInvite?`<button class="btn btn-primary btn-sm" onclick="sendInvite('${openDM}')">+ Invitar a mi Lobi</button>`:''}</div>
-    <div id="dm-thread" style="display:flex;flex-direction:column;gap:12px;min-height:300px;max-height:50vh;overflow-y:auto;padding:6px">${thread}</div>
+    <div id="dm-thread" class="dm-thread">${thread}</div>
     <div class="chat-input" style="border:none;padding:14px 0 0">
       <div class="ci-box"><span class="ci-ic" onclick="document.getElementById('dm-image-trigger').click()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></span><input type="text" id="dm-field" placeholder="Escribe a ${openDM}…" onkeydown="if(event.key==='Enter')sendDM()"></div>
       <button class="send-btn" onclick="sendDM()"><svg fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
@@ -1162,11 +1214,15 @@ function renderDMmsg(m,p){
   const body=m.img?`<div class="bubble img-bubble"><img class="chat-img" src="${m.img}" onclick="viewImage('${m.img}')"></div>`:`<div class="bubble">${escapeHtml(m.text)}</div>`;
   return `<div class="msg ${m.from==='me'?'me':''}">${m.from==='me'?'':`<img class="av" src="${av(p.seed,p.bg)}">`}<div class="bubble-wrap">${body}</div></div>`;
 }
-function openConversation(name){if(!dms[name])dms[name]=[];openDM=name;navTo('messages');}
+function openConversation(name){closePopover();if(!dms[name])dms[name]=[];openDM=name;navTo('messages');}
 function sendDM(){
   const f=document.getElementById('dm-field');if(!f||!f.value.trim())return;
-  dms[openDM].push({from:'me',text:f.value.trim()});f.value='';navTo('messages');
-  setTimeout(()=>{const r=['jaja sí 😄','dale, cuando quieras','vale 👍','de una!','me parece 🔥'];dms[openDM].push({from:'them',text:r[Math.floor(Math.random()*r.length)]});if(state.view==='messages'&&openDM)navTo('messages');},1100);
+  dms[openDM].push({from:'me',text:f.value.trim()});f.value='';navTo('messages');setTimeout(scrollDM,30);
+  // Solo los bots de ejemplo responden automático. Los usuarios reales NO (sería falso).
+  const destino=findPlayer(openDM);
+  if(destino && !destino.real){
+    setTimeout(()=>{const r=['jaja sí 😄','dale, cuando quieras','vale 👍','de una!','me parece 🔥'];dms[openDM].push({from:'them',text:r[Math.floor(Math.random()*r.length)]});if(state.view==='messages'&&openDM){navTo('messages');setTimeout(scrollDM,30);}},1100);
+  }
 }
 
 function playerGames(p){
@@ -1576,6 +1632,7 @@ function renderChat(){
 }
 function escapeHtml(s){return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function scrollChat(){const s=document.getElementById('chat-scroll');if(s)s.scrollTop=s.scrollHeight;}
+function scrollDM(){const s=document.getElementById('dm-thread');if(s)s.scrollTop=s.scrollHeight;}
 function sendMsg(){const f=document.getElementById('chat-field');if(!f||!f.value.trim())return;state.chatLog[state.currentLobi.id].push({type:'msg',me:true,text:f.value.trim()});f.value='';document.getElementById('chat-scroll').innerHTML=renderChat();scrollChat();}
 function toggleEmoji(e){e.stopPropagation();document.getElementById('emoji-pop').classList.toggle('active');}
 function insertEmoji(em){const f=document.getElementById('chat-field');if(!f)return;f.value+=em;f.focus();}
@@ -1768,6 +1825,7 @@ function navTo(view){
   navTo._keepTarget=false;
   const c=document.getElementById('app-content');const content=document.querySelector('.content');
   if(view==='room'){if(!state.currentLobi){navTo('lobis');return;}content.classList.add('in-room');c.classList.add('room-host');c.innerHTML=roomView();setTimeout(scrollChat,40);}
+  else if(view==='messages'&&openDM){content.classList.add('in-room');c.classList.add('room-host');c.innerHTML=messagesView();setTimeout(scrollDM,40);}
   else{content.classList.remove('in-room');c.classList.remove('room-host');if(view==='messages')c.innerHTML=messagesView();else c.innerHTML=(views[view]||views.home)();}
   document.querySelectorAll('.nav-item[data-view]').forEach(n=>n.classList.toggle('active',n.dataset.view===view));
   document.querySelectorAll('.mnav-item[data-mview]').forEach(n=>n.classList.toggle('active',n.dataset.mview===view));
