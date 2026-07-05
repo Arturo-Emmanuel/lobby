@@ -237,7 +237,7 @@ input,select,textarea{font-family:inherit}
 
 .room-chat{background:var(--color-bg);min-height:0}
 .chat-scroll{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:14px}
-.dm-open{max-width:680px;margin:0 auto;height:100%;display:flex;flex-direction:column;min-height:0}
+.dm-open{max-width:680px;margin:0 auto;height:100%;display:flex;flex-direction:column;min-height:0;padding-bottom:14px}
 .dm-open-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-shrink:0}
 .dm-thread{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0;overflow-y:auto;padding:6px}
 .msg{display:flex;gap:10px;max-width:78%}
@@ -916,6 +916,83 @@ function playersParaMostrar(limite){
   return limite ? combinados.slice(0, limite) : combinados;
 }
 
+/* ====== CAMBIO 3: LOBIS REALES ====== */
+let realLobis=null;
+
+/* Lee los Lobis reales creados por usuarios, desde la base de datos. */
+async function cargarLobisReales(){
+  try {
+    const { data, error } = await sb.from('lobis').select('*').order('created_at',{ascending:false});
+    if(error) throw error;
+    if(!data){ realLobis=[]; return; }
+    realLobis = data.map(l => {
+      const cat = GAME_CATALOG[l.juego] || GAME_CATALOG.minecraft;
+      return {
+        id: 'real-'+l.id,
+        game: l.juego || 'minecraft',
+        name: l.nombre || 'Lobi',
+        mode: (l.modo || 'SURVIVAL'),
+        cats: [l.modo, l.estilo, l.objetivo].filter(Boolean),
+        compat: 90,
+        cover: cat.cover,
+        coverImg: cat.cover.startsWith('data:') || cat.cover.startsWith('http'),
+        members: [],
+        real: true
+      };
+    });
+  } catch(e){
+    realLobis = [];
+  }
+}
+
+/* Lista de Lobis a mostrar: reales primero, ejemplos de relleno. */
+function lobisParaMostrar(limite){
+  const reales = realLobis || [];
+  const combinados = [...reales, ...lobis];
+  return limite ? combinados.slice(0, limite) : combinados;
+}
+
+/* ====== TIEMPO REAL: CHAT EN VIVO DEL LOBI ====== */
+let canalChat=null; // el canal al que estamos "sintonizados"
+
+/* Convierte una fila de la base de datos en un mensaje para el chat. */
+function filaAMensaje(m){
+  const esMio = m.autor === state.displayName;
+  return {type:'msg', me:esMio, who:m.autor, text:m.texto, seed:m.autor, bg:'c84dff'};
+}
+
+/* Carga los mensajes que ya existían en este Lobi. */
+async function cargarMensajesLobi(lobiId){
+  try {
+    const { data, error } = await sb.from('mensajes').select('*').eq('lobi_id',lobiId).order('created_at',{ascending:true});
+    if(error) throw error;
+    state.chatLog[lobiId] = (data||[]).map(filaAMensaje);
+    const box=document.getElementById('chat-scroll');
+    if(box){ box.innerHTML=renderChat(); scrollChat(); }
+  } catch(e){ /* si falla, el chat queda vacío, no rompe */ }
+}
+
+/* Nos "sintonizamos" al canal de este Lobi para recibir mensajes en vivo. */
+function suscribirseChat(lobiId){
+  desuscribirseChat(); // por si había otro abierto
+  canalChat = sb.channel('chat-'+lobiId)
+    .on('postgres_changes',
+      { event:'INSERT', schema:'public', table:'mensajes', filter:'lobi_id=eq.'+lobiId },
+      (payload)=>{
+        // Llegó un mensaje nuevo al canal: lo mostramos
+        if(!state.chatLog[lobiId]) state.chatLog[lobiId]=[];
+        state.chatLog[lobiId].push(filaAMensaje(payload.new));
+        const box=document.getElementById('chat-scroll');
+        if(box && state.currentLobi && state.currentLobi.id===lobiId){ box.innerHTML=renderChat(); scrollChat(); }
+      })
+    .subscribe();
+}
+
+/* Apagamos la radio al salir del Lobi. */
+function desuscribirseChat(){
+  if(canalChat){ sb.removeChannel(canalChat); canalChat=null; }
+}
+
 const av=(seed,bg)=>`https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${seed}&backgroundColor=${bg||'c84dff'}`;
 const compatClass=c=>c>=85?'high':c>=65?'mid':'';
 const compatLabel=c=>c>=85?'Muy compatible':c>=65?'Compatible':'Poco compatible';
@@ -1017,6 +1094,9 @@ async function goApp(view){
   /* Cargamos los usuarios reales en segundo plano y refrescamos la vista cuando lleguen */
   cargarUsuariosReales().then(()=>{
     if(state.view==='home'||state.view==='search') navTo(state.view);
+  });
+  cargarLobisReales().then(()=>{
+    if(state.view==='home'||state.view==='lobis') navTo(state.view);
   });
 }
 function syncUserUI(){document.getElementById('sb-avatar').src=state.avatarUrl;document.getElementById('sb-username').textContent=state.displayName;}
@@ -1172,7 +1252,7 @@ function playerCard(p){
 /* ============ VISTAS ============ */
 const views={
   home:()=>`<div class="hero-line">¡Qué bueno verte, ${state.displayName.split('_')[0]||'Arturo'}! 👋</div><div class="hero-sub">Encuentra tu gente y juega sin límites.</div>
-    <div class="sec-head"><div class="sec-title">Lobis recomendados para ti</div><a class="sec-link" onclick="navTo('lobis')">Ver todos →</a></div><div class="lobi-row">${lobis.map(lobiCard).join('')}</div>
+    <div class="sec-head"><div class="sec-title">Lobis recomendados para ti</div><a class="sec-link" onclick="navTo('lobis')">Ver todos →</a></div><div class="lobi-row">${lobisParaMostrar(4).map(lobiCard).join('')}</div>
     <div class="sec-head"><div class="sec-title">Jugadores compatibles contigo</div><a class="sec-link" onclick="navTo('search')">Ver todos →</a></div><div class="player-grid">${playersParaMostrar(6).map(playerCard).join('')}</div>
     <div class="cta-band"><div><h3>¿No sabes con quién jugar?</h3><p>Deja que Lobby encuentre tu mejor escuadra automáticamente.</p></div><button class="btn btn-primary" onclick="emparejar()">⚡ Emparejar ahora</button></div>`,
   search:()=>`<div class="hero-line">Buscar</div><div class="hero-sub">Filtra jugadores por modo, estilo y compatibilidad.</div>
@@ -1187,7 +1267,7 @@ const views={
   },
   messages:()=>messagesView(),
   lobis:()=>`<div class="hero-line">Lobis activos</div><div class="hero-sub">Puntos de encuentro temporales. Únete o crea el tuyo.</div>
-    <div class="sec-head"><div class="sec-title">Disponibles ahora</div><button class="btn btn-primary btn-sm" onclick="startCreate()">+ Crear Lobi</button></div><div class="lobi-row">${lobis.map(lobiCard).join('')}</div>`,
+    <div class="sec-head"><div class="sec-title">Disponibles ahora</div><button class="btn btn-primary btn-sm" onclick="startCreate()">+ Crear Lobi</button></div><div class="lobi-row">${lobisParaMostrar().map(lobiCard).join('')}</div>`,
   profile:()=> state._profileTarget ? fullProfileView(state._profileTarget) : myProfileView(),
   create:()=>createView(),
   settings:()=>settingsView(),
@@ -1386,16 +1466,38 @@ function createFormStep(){
     <div class="form-group"><div class="glabel">Objetivo principal</div><input type="text" id="cl-main-obj" placeholder="¿Qué quieren lograr?" value="Construir una base grande juntos"></div>
     <button class="btn btn-primary btn-block" onclick="publishLobi()">Publicar Lobi</button></div>`;
 }
-function publishLobi(){
+async function publishLobi(){
   if(state.currentLobi){openModal('modal-already');return;}
   const cat=GAME_CATALOG[createGame];
   const nm=(document.getElementById('new-lobi-name')||{}).value||'Mi Lobi';
   const mode=(document.querySelector('#cl-mode .chip.sel')||{}).textContent||cat.modes[0];
   const style=(document.querySelector('#cl-style .chip.sel')||{}).textContent||cat.styles[0];
   const obj=(document.querySelector('#cl-obj .chip.sel')||{}).textContent||cat.objectives[0];
-  enterLobi({id:'mine',game:createGame,name:nm,mode:mode.toUpperCase(),cats:[mode,style,obj],compat:91,
+
+  // Guardar el Lobi en la base de datos
+  let lobiId='mine';
+  try {
+    const { data:{ user } } = await sb.auth.getUser();
+    if(user){
+      const { data, error } = await sb.from('lobis').insert({
+        nombre: nm,
+        juego: createGame,
+        modo: mode.toUpperCase(),
+        estilo: style,
+        objetivo: obj,
+        id_creador: user.id
+      }).select().single();
+      if(error) throw error;
+      if(data && data.id) lobiId='real-'+data.id;  // id real de la base
+      toast('✅ ¡Lobi creado!');
+    }
+  } catch(e){
+    toast('⚠️ El Lobi se abrió pero no se guardó: ' + e.message);
+  }
+
+  enterLobi({id:lobiId,game:createGame,name:nm,mode:mode.toUpperCase(),cats:[mode,style,obj],compat:91,
     cover:cat.cover,coverImg:cat.cover.startsWith('data:')||cat.cover.startsWith('http'),
-    members:[{name:'Daniel_Mc',role:mode,seed:'Daniel',bg:'3da5ff',compat:96},{name:'Sofi_Gamer',role:'Explorador',seed:'Sofi',bg:'c84dff',compat:94}]},true);
+    members:[]},true);
   createStep='game';createGame=null;
 }
 
@@ -1442,9 +1544,10 @@ function changePassword(){
 /* ============ LOBI ============ */
 function tryJoin(lobiId){
   if(state.currentLobi){if(state.currentLobi.id===lobiId){navTo('room');return;}openModal('modal-already');return;}
-  const l=lobis.find(x=>x.id===lobiId);if(!l)return;
+  const l=(realLobis||[]).find(x=>x.id===lobiId)||lobis.find(x=>x.id===lobiId);if(!l)return;
   state.pendingLobi=l;
-  document.getElementById('join-players-list').innerHTML=l.members.map(m=>`<div class="join-p"><img class="av" src="${av(m.seed,m.bg)}"><div class="jp-meta"><div class="jp-name">${m.name}</div><div class="jp-role">${m.role}</div></div><div class="jp-compat" style="color:${compatColor(m.compat)}">${m.compat}%</div></div>`).join('');
+  const lista=l.members.map(m=>`<div class="join-p"><img class="av" src="${av(m.seed,m.bg)}"><div class="jp-meta"><div class="jp-name">${m.name}</div><div class="jp-role">${m.role}</div></div><div class="jp-compat" style="color:${compatColor(m.compat)}">${m.compat}%</div></div>`).join('');
+  document.getElementById('join-players-list').innerHTML=lista||'<div style="color:var(--color-muted);font-size:13px;padding:8px 0">Todavía no hay nadie aquí. ¡Sé el primero en entrar!</div>';
   openModal('modal-join');
 }
 function confirmJoin(){closeModal('modal-join');if(state.pendingLobi)enterLobi(state.pendingLobi,false);}
@@ -1452,10 +1555,16 @@ function enterLobi(lobi,created){
   const c=JSON.parse(JSON.stringify(lobi));
   if(!c.members.some(m=>m.isMe))c.members.unshift({name:state.displayName,role:'Tú',seed:'Arturo',bg:'c84dff',compat:100,isMe:true});
   state.currentLobi=c;
+  const esReal=c.id.startsWith('real-');
   if(!state.chatLog[c.id]){
     state.chatLog[c.id]=[];
-    if(!created){state.chatLog[c.id].push({type:'msg',seed:'Daniel',bg:'3da5ff',who:'Daniel_Mc',text:'¡Hola! Listos para construir? 🏗️',me:false});state.chatLog[c.id].push({type:'msg',seed:'Sofi',bg:'c84dff',who:'Sofi_Gamer',text:'siii, yo traigo madera y piedra',me:false});}
-    state.chatLog[c.id].push({type:'join',text:`${state.displayName} se ha unido al Lobi`});
+    if(!created && !esReal){state.chatLog[c.id].push({type:'msg',seed:'Daniel',bg:'3da5ff',who:'Daniel_Mc',text:'¡Hola! Listos para construir? 🏗️',me:false});state.chatLog[c.id].push({type:'msg',seed:'Sofi',bg:'c84dff',who:'Sofi_Gamer',text:'siii, yo traigo madera y piedra',me:false});}
+    if(!esReal) state.chatLog[c.id].push({type:'join',text:`${state.displayName} se ha unido al Lobi`});
+  }
+  // Si es un Lobi real: cargar mensajes guardados y sintonizar el canal en vivo
+  if(esReal){
+    cargarMensajesLobi(c.id);
+    suscribirseChat(c.id);
   }
   renderActiveLobiSidebar();updateCenterNav();
   /* recordatorio: si tengo juegos sin completar, marco el menú Perfil y aviso */
@@ -1473,7 +1582,7 @@ function confirmLeave(){
   if(others.length>0){buildRating(others);openModal('modal-rate');}
   else finalizeLeave();
 }
-function finalizeLeave(){state.currentLobi=null;state.pendingLobi=null;renderActiveLobiSidebar();updateCenterNav();navTo('home');}
+function finalizeLeave(){desuscribirseChat();state.currentLobi=null;state.pendingLobi=null;renderActiveLobiSidebar();updateCenterNav();navTo('home');}
 function renderActiveLobiSidebar(){
   const slot=document.getElementById('sb-active-lobi-slot');
   if(state.currentLobi){const l=state.currentLobi;slot.innerHTML=`<div class="sb-active-lobi" onclick="navTo('room')"><div class="sal-label"><span style="width:7px;height:7px;border-radius:50%;background:var(--color-success);display:inline-block"></span> Tu Lobi activo</div><div class="sal-name">${l.name}</div><div class="sal-meta">${l.members.length}/5 · toca para volver</div></div><div class="sb-divider"></div>`;}
@@ -1633,7 +1742,32 @@ function renderChat(){
 function escapeHtml(s){return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function scrollChat(){const s=document.getElementById('chat-scroll');if(s)s.scrollTop=s.scrollHeight;}
 function scrollDM(){const s=document.getElementById('dm-thread');if(s)s.scrollTop=s.scrollHeight;}
-function sendMsg(){const f=document.getElementById('chat-field');if(!f||!f.value.trim())return;state.chatLog[state.currentLobi.id].push({type:'msg',me:true,text:f.value.trim()});f.value='';document.getElementById('chat-scroll').innerHTML=renderChat();scrollChat();}
+async function sendMsg(){
+  const f=document.getElementById('chat-field');if(!f||!f.value.trim())return;
+  const texto=f.value.trim();
+  const lobiId=state.currentLobi.id;
+  f.value='';
+  // Si es un Lobi real, guardamos el mensaje en la base de datos (el tiempo real lo mostrará)
+  if(lobiId.startsWith('real-')){
+    try {
+      const { data:{ user } } = await sb.auth.getUser();
+      const { error } = await sb.from('mensajes').insert({
+        lobi_id: lobiId,
+        autor: state.displayName,
+        texto: texto,
+        id_usuario: user.id
+      });
+      if(error) throw error;
+      // No lo agregamos a mano: el canal en vivo nos lo devolverá (a nosotros y a los demás)
+    } catch(e){
+      toast('⚠️ No se envió: ' + e.message);
+    }
+  } else {
+    // Lobi de ejemplo: comportamiento local de siempre
+    state.chatLog[lobiId].push({type:'msg',me:true,text:texto});
+    document.getElementById('chat-scroll').innerHTML=renderChat();scrollChat();
+  }
+}
 function toggleEmoji(e){e.stopPropagation();document.getElementById('emoji-pop').classList.toggle('active');}
 function insertEmoji(em){const f=document.getElementById('chat-field');if(!f)return;f.value+=em;f.focus();}
 function viewImage(src){document.getElementById('img-viewer-src').src=src;document.getElementById('img-viewer').classList.add('active');}
