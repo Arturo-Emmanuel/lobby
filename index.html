@@ -886,7 +886,119 @@ const players=[
   {name:'Mar_Builds',game:'Minecraft · Constructor',compat:78,seed:'Mar',bg:'c84dff',mode:'BedWars',style:'Social',level:'Medio',goals:['Construir','Hacer amigos'],rating:4.6,ratings:12},
   {name:'KevPlays',game:'Minecraft · BedWars',compat:72,seed:'Kev',bg:'7b3dff',mode:'BedWars',style:'Casual',level:'Principiante',goals:['Ganar partidas'],rating:4.0,ratings:8},
 ];
-const friends=['Daniel_Mc','Sofi_Gamer','NotDiego'];
+/* ====== AMIGOS REALES (Problema 11) ======
+   Antes esto era una lista inventada: ['Daniel_Mc','Sofi_Gamer','NotDiego'].
+   Ahora arranca vacío y se llena SOLO con solicitudes aceptadas de verdad. */
+let friends = [];              // nombres de mis amigos reales
+let solicitudes = [];          // filas de la tabla 'amistades' que me involucran
+let canalAmistades = null;
+
+/* Traigo de la base todas mis amistades (pendientes y aceptadas). */
+async function cargarAmistades(){
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    const { data, error } = await sb.from('amistades').select('*')
+      .or(`de_usuario.eq.${user.id},para_usuario.eq.${user.id}`)
+      .order('created_at',{ascending:false});
+    if(error) throw error;
+
+    solicitudes = data || [];
+    const yo = user.id;
+    friends = solicitudes
+      .filter(a => a.estado === 'aceptada')
+      .map(a => a.de_usuario === yo ? a.para_nombre : a.de_nombre);
+
+    renderBadges();
+    if(state.view === 'friends') navTo('friends');
+  }catch(e){ /* si falla, la lista queda como está */ }
+}
+
+/* ¿En qué estado estoy con esta persona? Determina qué botón mostrar. */
+function estadoAmistad(nombre){
+  const a = solicitudes.find(x => x.de_nombre === nombre || x.para_nombre === nombre);
+  if(!a) return 'ninguno';
+  if(a.estado === 'aceptada') return 'amigos';
+  return a.de_nombre === state.displayName ? 'enviada' : 'recibida';
+}
+
+/* Le mando solicitud a alguien. Si esa persona YA me mandó una, nos hacemos
+   amigos al toque: es obvio que los dos quieren. */
+async function enviarSolicitud(nombre){
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    if(nombre === state.displayName){ toast('🙃 No podés agregarte a vos mismo'); return; }
+
+    const destino = findPlayer(nombre);
+    if(!destino || !destino.real || !destino.id_usuario){
+      toast('⚠️ Ese usuario no es real todavía');
+      return;
+    }
+
+    /* ¿Ya me habías mandado solicitud vos a mí? Entonces somos amigos. */
+    const cruzada = solicitudes.find(x =>
+      x.de_nombre === nombre && x.para_nombre === state.displayName && x.estado === 'pendiente');
+
+    if(cruzada){
+      await sb.from('amistades').update({ estado:'aceptada' }).eq('id', cruzada.id);
+      toast(`🎉 ¡Ya son amigos con ${nombre}!`);
+      return;
+    }
+
+    const yaHay = solicitudes.find(x => x.de_nombre === nombre || x.para_nombre === nombre);
+    if(yaHay){ toast('Ya hay una solicitud con esa persona'); return; }
+
+    const { error } = await sb.from('amistades').insert({
+      de_usuario: user.id,
+      de_nombre: state.displayName,
+      para_usuario: destino.id_usuario,
+      para_nombre: nombre,
+      estado: 'pendiente'
+    });
+    if(error) throw error;
+    toast('✅ Solicitud enviada');
+  }catch(e){ toast('⚠️ No se envió: ' + e.message); }
+}
+
+/* Acepto: solo cambio el sello de la fila. No creo nada nuevo. */
+async function aceptarSolicitud(id){
+  try{
+    const { error } = await sb.from('amistades').update({ estado:'aceptada' }).eq('id', id);
+    if(error) throw error;
+    toast('🎉 ¡Nuevo amigo!');
+  }catch(e){ toast('⚠️ No se pudo aceptar: ' + e.message); }
+}
+
+/* Rechazo o elimino: la fila se va. */
+async function rechazarSolicitud(id){
+  try{
+    const { error } = await sb.from('amistades').delete().eq('id', id);
+    if(error) throw error;
+  }catch(e){ toast('⚠️ No se pudo: ' + e.message); }
+}
+
+/* Elimino a un amigo (busco la fila que nos une y la borro). */
+async function eliminarAmigo(nombre){
+  const a = solicitudes.find(x =>
+    (x.de_nombre === nombre || x.para_nombre === nombre) && x.estado === 'aceptada');
+  if(!a) return;
+  await rechazarSolicitud(a.id);
+  toast(`Ya no sos amigo de ${nombre}`);
+}
+
+/* Me sintonizo: cualquier cambio en mis amistades me llega solo. */
+function suscribirseAmistades(){
+  if(canalAmistades) return;
+  canalAmistades = sb.channel('amistades-' + state.displayName)
+    .on('postgres_changes', { event:'*', schema:'public', table:'amistades' },
+      ()=>{ cargarAmistades(); })
+    .subscribe();
+}
+
+function desuscribirseAmistades(){
+  if(canalAmistades){ sb.removeChannel(canalAmistades); canalAmistades=null; }
+}
 
 /* ====== CAMBIO 2: USUARIOS REALES RECOMENDADOS ====== */
 /* Guardamos aquí los usuarios reales leídos de la base (para no leer cada vez). */
@@ -911,6 +1023,7 @@ async function cargarUsuariosReales(){
       .filter(p => !user || p.id_usuario !== user.id)  // no me recomiendo a mí mismo
       .map(p => ({
         name: p.nombre || p.nick || 'Jugador',
+        id_usuario: p.id_usuario,        // necesario para mandarle solicitud (Problema 11)
         game: p.estilo ? ('Estilo · ' + p.estilo) : 'Jugador de Lobby',
         compat: calcCompat(p),
         seed: p.nick || p.nombre || 'user',
@@ -1641,6 +1754,8 @@ async function goApp(view){
   /* Nos sintonizamos a los mensajes privados: llegan solos (Problema 3) */
   cargarListaPrivados().then(()=>{ if(state.view==='messages') navTo('messages'); });
   suscribirsePrivados();
+  cargarAmistades();          // Problema 11
+  suscribirseAmistades();     // Problema 11
 }
 function syncUserUI(){document.getElementById('sb-avatar').src=state.avatarUrl;document.getElementById('sb-username').textContent=state.displayName;}
 
@@ -1728,7 +1843,8 @@ function renderBadges(){
   const nb=document.getElementById('notif-badge');
   if(unread>0){nb.textContent=unread;nb.classList.remove('hidden');}else nb.classList.add('hidden');
   const msgUnread=state.notifs.filter(n=>n.unread&&n.type==='message').length;
-  const frUnread=state.notifs.filter(n=>n.unread&&n.type==='friend').length;
+  /* El badge de Amigos cuenta solicitudes REALES que me llegaron (Problema 11) */
+  const frUnread=solicitudes.filter(a=>a.estado==='pendiente'&&a.para_nombre===state.displayName).length;
   setBadge('badge-messages',msgUnread);setBadge('mn-badge-messages',msgUnread);setBadge('badge-friends',frUnread);
 }
 function setBadge(id,n){const el=document.getElementById(id);if(!el)return;if(n>0){el.textContent=n;el.classList.remove('hidden');}else el.classList.add('hidden');}
@@ -1754,8 +1870,9 @@ function openNotif(id){
   else if(n.type==='profile'){navTo('profile');}
   else if(n.type==='invite'){/* manejado abajo */}
 }
-function acceptFriend(id){const n=state.notifs.find(x=>x.id===id);if(!n)return;n.handled=true;n.unread=false;if(!friends.includes(n.from))friends.push(n.from);renderBadges();renderNotifPanel();toast(`✅ Ahora eres amigo de ${n.from}`);}
-function rejectFriend(id){const n=state.notifs.find(x=>x.id===id);if(!n)return;n.handled=true;n.unread=false;renderBadges();renderNotifPanel();toast('Solicitud rechazada');}
+/* Las viejas funciones de amistad falsa. Ahora solo llevan al panel real (Problema 11). */
+function acceptFriend(id){ navTo('friends'); }
+function rejectFriend(id){ navTo('friends'); }
 function clearNotifs(){state.notifs.forEach(n=>n.unread=false);renderBadges();renderNotifPanel();}
 
 /* ============ CARDS ============ */
@@ -1786,6 +1903,25 @@ function lobiCard(l){
       <div class="lobi-meta"><span class="compat ${compatClass(l.compat)}"><span class="dot"></span>${l.compat}%</span><span class="players-count"><div class="avatars">${avs}${more}</div> ${total}/5</span></div>
       <button class="btn btn-primary btn-sm btn-block">Ver y unirme</button></div></div>`;
 }
+/* El botón de amistad cambia según cómo estemos con esa persona (Problema 11). */
+function botonAmistad(nombre){
+  if(nombre === state.displayName) return '';
+
+  const est = estadoAmistad(nombre);
+  const a = solicitudes.find(x => x.de_nombre === nombre || x.para_nombre === nombre);
+
+  if(est === 'amigos')
+    return `<button class="btn btn-secondary btn-sm" onclick="eliminarAmigo('${nombre}')">✓ Amigos</button>`;
+
+  if(est === 'enviada')
+    return `<button class="btn btn-secondary btn-sm" onclick="rechazarSolicitud(${a.id})">⏳ Solicitud enviada</button>`;
+
+  if(est === 'recibida')
+    return `<button class="btn btn-primary btn-sm" onclick="aceptarSolicitud(${a.id})">✓ Aceptar solicitud</button>`;
+
+  return `<button class="btn btn-primary btn-sm" onclick="enviarSolicitud('${nombre}')">+ Agregar amigo</button>`;
+}
+
 function playerCard(p){
   return `<div class="player-card"><img class="av" src="${av(p.seed,p.bg)}">
     <div class="pinfo"><div class="pname">${p.name} <span class="star-rating-mini">★ ${p.rating}</span></div><div class="pgame">${p.game}</div>
@@ -1804,11 +1940,43 @@ const views={
     <div class="chip-grid" style="margin-bottom:22px"><button class="chip sel">Todos</button><button class="chip">Survival</button><button class="chip">BedWars</button><button class="chip">PvP</button><button class="chip">Constructor</button><button class="chip">Chill</button></div>
     <div class="player-grid">${playersParaMostrar().map(playerCard).join('')}</div>`,
   friends:()=>{
-    const reqs=state.notifs.filter(n=>n.type==='friend'&&!n.handled);
-    const reqHtml=reqs.length?reqs.map(n=>`<div class="player-card"><img class="av" src="${av(n.seed,n.bg)}"><div class="pinfo"><div class="pname">${n.from}</div><div class="pgame">Quiere ser tu amigo</div></div><div class="pactions"><button class="mini-btn" style="border-color:var(--color-success)" onclick="acceptFriend('${n.id}');navTo('friends')"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button><button class="mini-btn" onclick="rejectFriend('${n.id}');navTo('friends')"><svg fill="none" stroke="var(--color-danger)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div></div>`).join(''):'<div class="side-empty" style="max-width:400px">Sin solicitudes pendientes.</div>';
+    const yo = state.displayName;
+
+    /* Solicitudes que ME llegaron y no respondí */
+    const recibidas = solicitudes.filter(a => a.estado==='pendiente' && a.para_nombre===yo);
+    /* Las que YO mandé y esperan respuesta */
+    const enviadas  = solicitudes.filter(a => a.estado==='pendiente' && a.de_nombre===yo);
+
+    const reqHtml = recibidas.length
+      ? recibidas.map(a=>{
+          const p=findPlayer(a.de_nombre);
+          return `<div class="player-card"><img class="av" src="${av(p.seed,p.bg)}">
+            <div class="pinfo"><div class="pname">${escapeHtml(a.de_nombre)}</div><div class="pgame">Quiere ser tu amigo</div></div>
+            <div class="pactions">
+              <button class="mini-btn" style="border-color:var(--color-success)" title="Aceptar" onclick="aceptarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+              <button class="mini-btn" title="Rechazar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-danger)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div></div>`;
+        }).join('')
+      : '<div class="side-empty" style="max-width:400px">Sin solicitudes pendientes.</div>';
+
+    const envHtml = enviadas.length
+      ? `<div class="sec-head"><div class="sec-title">Enviadas</div></div><div class="player-grid">` +
+        enviadas.map(a=>{
+          const p=findPlayer(a.para_nombre);
+          return `<div class="player-card"><img class="av" src="${av(p.seed,p.bg)}">
+            <div class="pinfo"><div class="pname">${escapeHtml(a.para_nombre)}</div><div class="pgame">Esperando respuesta…</div></div>
+            <div class="pactions"><button class="mini-btn" title="Cancelar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-muted)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div></div>`;
+        }).join('') + `</div>`
+      : '';
+
+    const amigosHtml = friends.length
+      ? friends.map(f=>playerCard(findPlayer(f))).join('')
+      : '<div class="side-empty" style="max-width:400px">Todavía no tenés amigos. Entrá a un Lobi y agregá a quien te caiga bien. 🎮</div>';
+
     return `<div class="hero-line">Amigos</div><div class="hero-sub">La gente que te cayó bien. No la pierdas.</div>
       <div class="sec-head"><div class="sec-title">Solicitudes</div></div><div class="player-grid">${reqHtml}</div>
-      <div class="sec-head"><div class="sec-title">Tus amigos</div></div><div class="player-grid">${friends.map(f=>playerCard(findPlayer(f))).join('')}</div>`;
+      ${envHtml}
+      <div class="sec-head"><div class="sec-title">Tus amigos</div></div><div class="player-grid">${amigosHtml}</div>`;
   },
   messages:()=>messagesView(),
   lobis:()=>`<div class="hero-line">Lobis activos</div><div class="hero-sub">Puntos de encuentro temporales. Únete o crea el tuyo.</div>
@@ -1918,7 +2086,7 @@ function gameAnswersHtml(p){
 function fullProfileView(name){
   const p=findPlayer(name);const dash=2*Math.PI*33;const off=dash*(1-p.compat/100);
   return `<div class="profile-banner"></div><div class="profile-head"><img class="pav" src="${av(p.seed,p.bg)}"><div class="pmeta"><h2>${p.name}</h2><div class="psub">🇨🇷 Costa Rica · @${p.name.toLowerCase()}</div></div>
-    <div class="profile-actions"><button class="btn btn-secondary btn-sm" onclick="openConversation('${p.name}')"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg> Mensaje</button><button class="btn btn-primary btn-sm" onclick="toast('✅ Solicitud enviada a ${p.name}')">+ Agregar amigo</button></div></div>
+    <div class="profile-actions"><button class="btn btn-secondary btn-sm" onclick="openConversation('${p.name}')"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg> Mensaje</button>${botonAmistad(p.name)}</div></div>
     <div class="compat-banner"><div class="compat-ring"><svg width="78" height="78"><circle cx="39" cy="39" r="33" fill="none" stroke="#2A2A35" stroke-width="7"/><circle cx="39" cy="39" r="33" fill="none" stroke="${compatColor(p.compat)}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${dash}" stroke-dashoffset="${off}"/></svg><span class="pct">${p.compat}%</span></div>
       <div class="ctext"><h4 style="color:${compatColor(p.compat)}">${compatLabel(p.compat)} contigo</h4><p>Comparten modo ${p.mode} y estilo ${p.style}. ${p.compat>=85?'Encajarían muy bien en un Lobi.':'Podrían jugar bien juntos.'}</p></div></div>
     <div class="detail-grid">
