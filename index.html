@@ -976,7 +976,7 @@ let canalChat=null; // el canal al que estamos "sintonizados"
 function filaAMensaje(m){
   const esMio = m.autor === state.displayName;
   if(m.tipo === 'sistema') return {type:'join', id:m.id, text:m.texto};
-  return {type:'msg', id:m.id, me:esMio, who:m.autor, text:m.texto, seed:m.autor, bg:'c84dff', editado: !!m.editado};
+  return {type:'msg', id:m.id, me:esMio, who:m.autor, text:m.texto, seed:m.autor, bg:'c84dff', editado: !!m.editado, imagen: m.imagen || null};
 }
 
 /* Carga los mensajes que ya existían en este Lobi. */
@@ -1431,7 +1431,7 @@ async function cargarPrivados(conQuien){
       .or(`and(de_nombre.eq.${yo},para_nombre.eq.${conQuien}),and(de_nombre.eq.${conQuien},para_nombre.eq.${yo})`)
       .order('created_at',{ascending:true});
     if(error) throw error;
-    dms[conQuien] = (data||[]).map(m=>({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado }));
+    dms[conQuien] = (data||[]).map(m=>({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null }));
     if(state.view==='messages' && openDM===conQuien){ navTo('messages'); setTimeout(scrollDM,30); }
   }catch(e){ /* si falla, la conversación queda como está */ }
 }
@@ -1452,7 +1452,7 @@ function suscribirsePrivados(){
         if(m.para_nombre!==yo && m.de_nombre!==yo) return;
         const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
         if(!dms[otro]) dms[otro]=[];
-        dms[otro].push({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado });
+        dms[otro].push({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null });
         // Si tengo esa conversación abierta, la refresco; si no, refresco la lista
         refrescar();
       })
@@ -1465,7 +1465,7 @@ function suscribirsePrivados(){
         const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
         const hilo = dms[otro] || [];
         const i = hilo.findIndex(x => x.id === m.id);
-        if(i >= 0) hilo[i] = { id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado };
+        if(i >= 0) hilo[i] = { id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null };
         refrescar();
       })
     /* Privado BORRADO (Problema 9) */
@@ -1820,7 +1820,7 @@ const views={
 
 function messagesView(){
   const names=Object.keys(dms);
-  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${last.img?'📷 Imagen':escapeHtml(last.text||'')}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer"><img class="av" src="${av(p.seed,p.bg)}"><div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
+  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':escapeHtml(last.text||'')}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer"><img class="av" src="${av(p.seed,p.bg)}"><div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
   if(!openDM)return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div><div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${list}</div>`;
   const p=findPlayer(openDM);
   const thread=dms[openDM].map(m=>renderDMmsg(m,p)).join('');
@@ -1851,17 +1851,17 @@ function renderDMmsg(m,p){
   }
 
   const tag = m.editado ? '<span class="edited-tag">(editado)</span>' : '';
-  const body = m.img
-    ? `<div class="bubble img-bubble"><img class="chat-img" src="${m.img}" onclick="viewImage('${m.img}')"></div>`
+  const esFoto = !!(m.imagen || m.img);
+  const body = esFoto
+    ? burbujaImagen(m)
     : `<div class="bubble">${escapeHtml(m.text)}${tag}</div>`;
 
-  /* Botones solo en MIS privados reales (los que tienen id) */
-  const acciones = (m.from==='me' && m.id != null && !m.img)
-    ? `<div class="msg-acts">
-         <button class="msg-act" title="Editar" onclick="empezarEdicionPriv(${m.id})">✏️</button>
-         <button class="msg-act del" title="Borrar" onclick="pedirBorrarPrivado(${m.id})">🗑️</button>
-       </div>`
-    : '';
+  /* Mis privados reales llevan botones. Las fotos solo se borran, no se editan. */
+  let acciones = '';
+  if(m.from==='me' && m.id != null){
+    const editar = esFoto ? '' : `<button class="msg-act" title="Editar" onclick="empezarEdicionPriv(${m.id})">✏️</button>`;
+    acciones = `<div class="msg-acts">${editar}<button class="msg-act del" title="Borrar" onclick="pedirBorrarPrivado(${m.id})">🗑️</button></div>`;
+  }
 
   return `<div class="msg ${m.from==='me'?'me':''}">${m.from==='me'?'':`<img class="av" src="${av(p.seed,p.bg)}">`}<div class="bubble-wrap">${body}</div>${acciones}</div>`;
 }
@@ -2414,21 +2414,96 @@ function renderChat(){
     }
 
     const tag = e.editado ? '<span class="edited-tag">(editado)</span>' : '';
-    const body = e.img
-      ? `<div class="bubble img-bubble"><img class="chat-img" src="${e.img}" onclick="viewImage('${e.img}')"></div>`
+    const esFoto = !!(e.imagen || e.img);
+    const body = esFoto
+      ? burbujaImagen(e)
       : `<div class="bubble">${escapeHtml(e.text)}${tag}</div>`;
 
-    /* Botones de editar y borrar: solo en MIS mensajes, y solo si son reales (tienen id) */
-    const acciones = (e.me && e.id != null && !e.img)
-      ? `<div class="msg-acts">
-           <button class="msg-act" title="Editar" onclick="empezarEdicion(${e.id})">✏️</button>
-           <button class="msg-act del" title="Borrar" onclick="pedirBorrarMensaje(${e.id})">🗑️</button>
-         </div>`
-      : '';
+    /* Mis mensajes reales llevan botones. Las fotos solo se pueden borrar, no editar. */
+    let acciones = '';
+    if(e.me && e.id != null){
+      const editar = esFoto ? '' : `<button class="msg-act" title="Editar" onclick="empezarEdicion(${e.id})">✏️</button>`;
+      acciones = `<div class="msg-acts">${editar}<button class="msg-act del" title="Borrar" onclick="pedirBorrarMensaje(${e.id})">🗑️</button></div>`;
+    }
 
     return `<div class="msg ${e.me?'me':''}">${e.me?'':`<img class="av" src="${av(e.seed,e.bg)}">`}<div class="bubble-wrap"><div class="who"><b>${e.me?'Tú':escapeHtml(e.who)}</b></div>${body}</div>${acciones}</div>`;
   }).join('');
 }
+/* ====== IMÁGENES EN LA NUBE — Supabase Storage (Problema 4) ======
+   El bucket 'chat' es PRIVADO. Guardamos solo el nombre del archivo en la
+   base; el link para verla se pide aparte y vence en 1 hora. */
+
+const BUCKET = 'chat';
+const MAX_MB = 5;
+const linksDeFotos = {};   // nombre del archivo -> link temporal ya pedido
+
+/* Sube la foto y devuelve su nombre. null si algo falla. */
+async function subirImagen(file){
+  if(!file) return null;
+
+  if(!file.type || !file.type.startsWith('image/')){
+    toast('⚠️ Eso no es una imagen');
+    return null;
+  }
+  if(file.size > MAX_MB * 1024 * 1024){
+    toast(`⚠️ La imagen pesa demasiado (máx ${MAX_MB} MB)`);
+    return null;
+  }
+
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user){ toast('⚠️ Necesitás iniciar sesión'); return null; }
+
+    /* Nombre aleatorio: nadie lo puede adivinar */
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().slice(0,5);
+    const nombre = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2,10)}.${ext}`;
+
+    toast('📤 Subiendo imagen…');
+    const { error } = await sb.storage.from(BUCKET).upload(nombre, file, { contentType: file.type });
+    if(error) throw error;
+
+    return nombre;
+  }catch(e){
+    toast('⚠️ No se pudo subir: ' + e.message);
+    return null;
+  }
+}
+
+/* Pide un link temporal (1 hora) para ver una foto. Lo guarda en caché. */
+async function linkDeImagen(nombre){
+  if(!nombre) return null;
+  if(linksDeFotos[nombre]) return linksDeFotos[nombre];
+  try{
+    const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(nombre, 3600);
+    if(error) throw error;
+    linksDeFotos[nombre] = data.signedUrl;
+    return data.signedUrl;
+  }catch(e){ return null; }
+}
+
+/* Busca todas las fotos que están en pantalla sin link y se los consigue. */
+async function resolverImagenes(){
+  const pendientes = document.querySelectorAll('img.chat-img[data-foto]:not([data-listo])');
+  for(const img of pendientes){
+    const nombre = img.getAttribute('data-foto');
+    const url = await linkDeImagen(nombre);
+    if(url){
+      img.src = url;
+      img.setAttribute('data-listo','1');
+      img.onclick = ()=>viewImage(url);
+    }
+  }
+}
+
+/* La burbujita de una imagen. Nace vacía y resolverImagenes() le pone el link. */
+function burbujaImagen(m){
+  if(m.imagen){
+    return `<div class="bubble img-bubble"><img class="chat-img" data-foto="${escapeHtml(m.imagen)}" alt="imagen"></div>`;
+  }
+  /* Imagen vieja o de un Lobi de ejemplo: viene entera en el mensaje */
+  return `<div class="bubble img-bubble"><img class="chat-img" src="${m.img}" onclick="viewImage('${m.img}')"></div>`;
+}
+
 function escapeHtml(s){return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 /* ====== EDITAR Y BORRAR MENSAJES (Problema 9) ====== */
@@ -2567,8 +2642,8 @@ async function avisoDeSistema(lobiId, texto){
     });
   }catch(e){ /* si falla, no rompe nada */ }
 }
-function scrollChat(){const s=document.getElementById('chat-scroll');if(s)s.scrollTop=s.scrollHeight;}
-function scrollDM(){const s=document.getElementById('dm-thread');if(s)s.scrollTop=s.scrollHeight;}
+function scrollChat(){const s=document.getElementById('chat-scroll');if(s)s.scrollTop=s.scrollHeight;resolverImagenes();}
+function scrollDM(){const s=document.getElementById('dm-thread');if(s)s.scrollTop=s.scrollHeight;resolverImagenes();}
 async function sendMsg(){
   const f=document.getElementById('chat-field');if(!f||!f.value.trim())return;
   const texto=f.value.trim();
@@ -2600,17 +2675,63 @@ function insertEmoji(em){const f=document.getElementById('chat-field');if(!f)ret
 function viewImage(src){document.getElementById('img-viewer-src').src=src;document.getElementById('img-viewer').classList.add('active');}
 
 /* imágenes en chat de lobi */
-document.getElementById('chat-image-input').addEventListener('change',function(e){
-  const file=e.target.files[0];if(!file||!state.currentLobi)return;
-  const r=new FileReader();r.onload=ev=>{state.chatLog[state.currentLobi.id].push({type:'msg',me:true,img:ev.target.result});document.getElementById('chat-scroll').innerHTML=renderChat();scrollChat();};
-  r.readAsDataURL(file);e.target.value='';
+/* Imagen en el chat del Lobi: sube a Storage y guarda solo el nombre (Problema 4) */
+document.getElementById('chat-image-input').addEventListener('change', async function(e){
+  const file=e.target.files[0]; e.target.value='';
+  if(!file || !state.currentLobi) return;
+  const lobiId = state.currentLobi.id;
+
+  if(lobiId.startsWith('real-')){
+    const nombre = await subirImagen(file);
+    if(!nombre) return;
+    try{
+      const { data:{ user } } = await sb.auth.getUser();
+      const { error } = await sb.from('mensajes').insert({
+        lobi_id: lobiId,
+        autor: state.displayName,
+        texto: '',
+        id_usuario: user.id,
+        imagen: nombre
+      });
+      if(error) throw error;
+      /* El canal en vivo se la muestra a todos, incluido a mí */
+    }catch(err){ toast('⚠️ No se envió: '+err.message); }
+  } else {
+    /* Lobi de ejemplo: como siempre, solo local */
+    const r=new FileReader();
+    r.onload=ev=>{state.chatLog[lobiId].push({type:'msg',me:true,img:ev.target.result});document.getElementById('chat-scroll').innerHTML=renderChat();scrollChat();};
+    r.readAsDataURL(file);
+  }
 });
-/* imágenes en DM (delegado porque el input se recrea) */
-document.addEventListener('change',function(e){
-  if(e.target&&e.target.id==='dm-image-trigger'){
-    const file=e.target.files[0];if(!file||!openDM)return;
-    const r=new FileReader();r.onload=ev=>{dms[openDM].push({from:'me',img:ev.target.result});navTo('messages');};
-    r.readAsDataURL(file);e.target.value='';
+
+/* Imagen en un privado (delegado porque el input se recrea) */
+document.addEventListener('change', async function(e){
+  if(!e.target || e.target.id!=='dm-image-trigger') return;
+  const file=e.target.files[0]; e.target.value='';
+  if(!file || !openDM) return;
+
+  const destinatario = openDM;
+  const destino = findPlayer(destinatario);
+
+  if(destino && destino.real){
+    const nombre = await subirImagen(file);
+    if(!nombre) return;
+    try{
+      const { data:{ user } } = await sb.auth.getUser();
+      const { error } = await sb.from('privados').insert({
+        de_usuario: user.id,
+        de_nombre: state.displayName,
+        para_nombre: destinatario,
+        texto: '',
+        imagen: nombre
+      });
+      if(error) throw error;
+    }catch(err){ toast('⚠️ No se envió: '+err.message); }
+  } else {
+    /* Usuario de ejemplo: como siempre, solo local */
+    const r=new FileReader();
+    r.onload=ev=>{dms[destinatario].push({from:'me',img:ev.target.result});navTo('messages');};
+    r.readAsDataURL(file);
   }
 });
 
