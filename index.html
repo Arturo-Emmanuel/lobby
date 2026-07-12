@@ -2,7 +2,7 @@
 <html lang="es" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Lobby — Prototipo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -219,7 +219,14 @@ input,select,textarea{font-family:inherit}
 .room-header{display:flex;align-items:center;gap:16px;padding:16px 24px;border-bottom:1px solid var(--color-border);flex-shrink:0;flex-wrap:wrap}
 .room-header .rh-title{font-size:18px;font-weight:600}
 .room-header .rh-cats{display:flex;gap:6px;margin-top:5px}
-.room-timer{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--color-card);border:1px solid var(--color-border);padding:8px 13px;border-radius:11px}
+.room-timer{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--color-card);border:1px solid var(--color-border);padding:8px 13px;border-radius:11px;white-space:nowrap;flex-shrink:0}
+.rh-more{display:none;width:40px;height:40px;border-radius:11px;background:var(--color-card);border:1px solid var(--color-border);color:var(--color-muted);align-items:center;justify-content:center;flex-shrink:0}
+.rh-more svg{width:20px;height:20px}
+.room-info-drop{display:none;padding:14px 16px;border-bottom:1px solid var(--color-border);background:var(--color-card);flex-direction:column;gap:12px}
+.room-info-drop.open{display:flex}
+.rid-cats{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rid-compat{font-size:13px;color:var(--color-muted);display:flex;align-items:center;gap:7px}
+.rid-compat .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .room-timer svg{width:16px;height:16px;color:var(--color-primary)}
 .room-body{flex:1;display:grid;grid-template-columns:220px 1fr 290px;min-height:0}
 .room-col{display:flex;flex-direction:column;min-height:0}
@@ -424,8 +431,8 @@ input,select,textarea{font-family:inherit}
   .room-body{grid-template-columns:1fr}
   .room-members,.room-side{display:none}
   .room-members.mshow,.room-side.mshow{display:flex}
-  .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:40;height:64px;background:var(--color-bg-deep);border-top:1px solid var(--color-border);align-items:center;justify-content:space-around;padding:0 6px}
-  .mnav-spacer{display:block;height:64px}
+  .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:40;height:calc(64px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--color-bg-deep);border-top:1px solid var(--color-border);align-items:center;justify-content:space-around;padding-left:6px;padding-right:6px}
+  .mnav-spacer{display:block;height:calc(64px + env(safe-area-inset-bottom))}
   .mnav-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--color-muted);font-size:10px;font-weight:500;flex:1;padding:6px 0;position:relative}
   .mnav-item svg{width:21px;height:21px}
   .mnav-item.active{color:#fff}.mnav-item.active svg{color:var(--color-primary)}
@@ -499,6 +506,7 @@ input,select,textarea{font-family:inherit}
   .game-pick-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
   .mygames-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
 }
+
 .hidden{display:none!important}
 
 /* ====== chats más grandes ====== */
@@ -588,6 +596,167 @@ input,select,textarea{font-family:inherit}
 .country-select{width:100%;background:var(--color-bg-deep);border:1px solid var(--color-border);border-radius:var(--radius-button);padding:13px 15px;color:var(--color-text);font-size:15px;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23A1A1AA' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
 .country-select:focus{outline:none;border-color:var(--color-primary)}
 .country-select option{background:var(--color-card);color:var(--color-text)}
+
+/* ══════════ MÓVIL — Problema 8 ══════════
+   Objetivo: que se sienta app nativa, no web achicada.
+   Reglas: dedo = 44px mínimo. Inputs a 16px (si no, iOS hace zoom solo).
+   Nada de :hover — en un celular no existe. */
+@media(max-width:880px){
+
+  /* ---- Barra de arriba: buscador full, sin apretujar ---- */
+  .topbar{padding:12px 14px;gap:10px}
+  .search{max-width:none;padding:11px 13px}
+  .search input{font-size:16px}
+
+  /* ---- Tarjetas: una por fila. Dos no entran y quedan feas. ---- */
+  .player-grid{grid-template-columns:1fr;gap:10px}
+  .lobi-row{grid-template-columns:1fr;gap:12px}
+  .detail-grid{grid-template-columns:1fr;gap:12px}
+
+  /* ---- Tarjeta de jugador: los botones abajo, no al costado ---- */
+  .player-card{flex-wrap:wrap;padding:14px;gap:12px}
+  .player-card .pinfo{flex:1 1 auto;min-width:0}
+  .player-card .pname{font-size:16px}
+  .player-card .pactions{flex:1 0 100%;justify-content:stretch;gap:8px;margin-top:2px}
+  .player-card .pactions .mini-btn{flex:1;width:auto;height:44px}
+  .player-card .pactions .mini-btn svg{width:19px;height:19px}
+
+  /* ---- Todo lo que se toca: 44px ---- */
+  .btn{padding:14px 18px;font-size:15px;min-height:46px}
+  .btn-sm{padding:12px 16px;min-height:44px}
+  .chip{padding:12px 16px;font-size:14px;min-height:44px}
+  .mini-btn{width:44px;height:44px}
+
+  /* ---- Chat: burbujas más anchas, avatar más chico ---- */
+  .chat-scroll{padding:16px 14px;gap:14px}
+  .msg{max-width:88%}
+  .msg .av{width:32px;height:32px}
+  .bubble{font-size:15px;padding:11px 14px}
+  .bubble img.chat-img{max-width:200px;max-height:240px}
+
+  /* ---- Editar/borrar: en celular NO hay hover. Siempre visibles. ---- */
+  .msg-acts{opacity:1;flex-direction:column;gap:6px}
+  .msg-act{width:38px;height:38px;font-size:15px}
+
+  /* ---- Cajita de editar: en columna, si no no entra ---- */
+  .edit-box{flex-wrap:wrap;gap:8px}
+  .edit-box input{flex:1 0 100%;font-size:16px;padding:11px 13px}
+  .edit-box button{flex:1;min-height:44px;padding:0 16px;font-size:14px}
+
+  /* ---- Barra de escribir: cómoda para el pulgar ---- */
+  .chat-input{padding:10px 12px;gap:8px}
+  .chat-input .ci-box{padding:11px 13px}
+  .chat-input input{font-size:16px}
+  .chat-input .ci-ic{padding:4px}
+  .chat-input .ci-ic svg{width:22px;height:22px}
+
+  /* ---- Perfil: centrado y vertical. El avatar ya no se sale. ---- */
+  .profile-head{flex-direction:column;align-items:center;text-align:center;margin:-40px 0 0 0;gap:12px}
+  .profile-head .pav{width:84px;height:84px}
+  .profile-head .pmeta{padding-bottom:0;flex:none}
+  .profile-head .pmeta h2{font-size:21px}
+  .profile-actions{flex-direction:column;width:100%;gap:8px}
+  .profile-actions .btn{width:100%}
+
+  /* ---- Banner de compatibilidad: apilado ---- */
+  .compat-banner{flex-direction:column;text-align:center;gap:12px;padding:18px 16px}
+
+  /* ---- Modales: pegados abajo, como app nativa ---- */
+  .modal-overlay{align-items:flex-end;padding:0}
+  .modal{border-radius:22px 22px 0 0;max-width:none;padding:24px 18px calc(24px + env(safe-area-inset-bottom));max-height:88vh}
+  .modal-actions{flex-direction:column-reverse;gap:8px}
+  .modal-actions .btn{width:100%}
+
+  /* ---- Popover del Lobi: también desde abajo ---- */
+  .popover{width:auto;left:12px!important;right:12px!important;bottom:78px!important;top:auto!important;border-radius:18px}
+  .pop-actions{flex-wrap:wrap}
+  .pop-actions .btn{flex:1 1 45%;min-height:44px}
+
+  /* ---- Notificaciones: pantalla casi completa ---- */
+  .notif-panel{position:fixed;top:auto;bottom:70px;left:10px;right:10px;width:auto;max-width:none;max-height:62vh;border-radius:18px}
+
+  /* ══ SALA DEL LOBI EN MÓVIL ══
+     Arriba: solo el nombre y el tiempo. Todo lo demás en el menú ⋯.
+     El chat se lleva TODO el espacio que sobra. */
+  .room-header{padding:10px 12px;gap:8px;align-items:center}
+  .rh-desktop-only{display:none!important}
+  .rh-more{display:flex}
+  .rh-title{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .room-timer{font-size:12.5px;padding:8px 11px;gap:5px}
+  .room-timer svg{width:14px;height:14px}
+
+  /* Tabs arriba, compactas: no le roban espacio al chat */
+  .room-mobile-tabs{padding:8px 12px;gap:6px}
+  .room-mobile-tabs button{padding:10px 4px;font-size:12.5px;min-height:40px;border-radius:9px}
+
+  /* Chat: todo el espacio disponible */
+  .room-body{flex:1;min-height:0}
+  .room-col.room-chat{height:100%;min-height:0}
+  .chat-scroll{flex:1;min-height:0}
+
+  /* La caja de escribir SIEMPRE visible, pegada abajo y por encima del nav */
+  .chat-input{position:sticky;bottom:0;background:var(--color-bg-deep);border-top:1px solid var(--color-border);padding:10px 12px}
+  .room{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+
+  /* ---- Nada se desborda de la pantalla ---- */
+  .content{overflow-x:hidden}
+  .hero-line{font-size:22px}
+  .hero-sub{font-size:14px}
+
+  /* ---- La sala usa la altura REAL de la ventana (sin la barra del navegador) ---- */
+  .room{height:100dvh;max-height:100dvh}
+  .chat-scroll{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+
+  /* ---- Que un toque largo no seleccione texto sin querer ---- */
+  .mini-btn,.msg-act,.chip,.btn,.mnav-item,.room-mobile-tabs button{-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+
+  /* ---- Grillas de juegos: 2 por fila ---- */
+  .game-pick-grid{grid-template-columns:repeat(2,1fr);gap:10px}
+  .mygames-grid{grid-template-columns:repeat(2,1fr);gap:10px}
+
+  /* ---- REGLA DE ORO: cualquier input a menos de 16px hace que iOS
+         haga zoom solo al tocarlo. Se ve horrible. Nunca menos de 16. ---- */
+  input,textarea,select{font-size:16px!important}
+  .field input{padding:14px 15px;min-height:48px}
+
+  /* ---- Encabezados de sección: el botón abajo, no apretujado al lado ---- */
+  .sec-head{flex-wrap:wrap;gap:10px;margin:24px 0 12px}
+  .sec-head .btn{width:100%}
+  .sec-title{font-size:16px}
+
+  /* ---- Feedback al tocar: que se note que apretaste ---- */
+  .player-card:active,.lobi-card:active{transform:scale(.985)}
+  .mini-btn:active,.msg-act:active,.btn:active{transform:scale(.94)}
+  .msg.acts-open .bubble{border-color:var(--color-primary)}
+
+  /* ---- Nada de hover en celular: no existe el mouse ---- */
+  .player-card:hover{border-color:var(--color-border)}
+  .mini-btn:hover{border-color:var(--color-border)}
+}
+
+/* ══════════ CELULARES CHICOS (≤400px) ══════════ */
+@media(max-width:400px){
+  .content{padding:14px 12px}
+  .hero-line{font-size:20px}
+  .player-card .av{width:42px;height:42px}
+  .player-card .pname{font-size:15px}
+  .msg{max-width:92%}
+  .bubble{font-size:14.5px;padding:10px 12px}
+  .msg-act{width:36px;height:36px}
+  .mnav-item{font-size:9px}
+  .mnav-item svg{width:20px;height:20px}
+}
+
+/* ══════════ PANTALLA ACOSTADA ══════════
+   El teclado tapa medio celular. Bajamos alturas. */
+@media(max-height:480px) and (orientation:landscape){
+  .mobile-nav{height:52px}
+  .mnav-spacer{height:52px}
+  .modal{max-height:94vh}
+  .chat-scroll{padding:10px 14px;gap:10px}
+}
+
+
 </style>
 </head>
 <body>
@@ -1454,14 +1623,11 @@ function arrancarRelojLobi(){
     if(!l || !l.terminaEn) return;
     const quedan = Math.round((l.terminaEn - Date.now())/1000);
 
-    // Actualizar el reloj en pantalla
-    const el=document.querySelector('.room-timer');
-    if(el){
-      const svg=el.querySelector('svg');
-      el.innerHTML = (svg?svg.outerHTML:'') + ' ' + formatoTiempo(quedan);
-      // Ponerlo rojo si quedan menos de 5 min
-      el.style.color = quedan<=300 ? 'var(--color-danger, #ef4444)' : '';
-    }
+    // Actualizar el reloj en pantalla (solo el texto, sin romper el ícono)
+    const txt=document.getElementById('room-timer-text');
+    const el=document.getElementById('room-timer-badge');
+    if(txt) txt.textContent = formatoTiempo(quedan);
+    if(el) el.style.color = quedan<=300 ? 'var(--color-danger, #ef4444)' : '';
 
     // Aviso a los 5 minutos
     if(quedan<=300 && quedan>0 && !avisoMostrado){
@@ -2483,6 +2649,7 @@ async function tryJoin(lobiId){
 }
 function confirmJoin(){closeModal('modal-join');if(state.pendingLobi)enterLobi(state.pendingLobi,false);}
 function enterLobi(lobi,created){
+  roomTab='chat';   // siempre arrancamos en el chat, no en el escritorio (Problema 8)
   const c=JSON.parse(JSON.stringify(lobi));
   const esReal=c.id.startsWith('real-');
   // En Lobis de ejemplo me agrego local; en los reales, los miembros vienen de la nube
@@ -2599,10 +2766,16 @@ function roomView(){
   const members=l.members.map(m=>`<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap"><img class="av" src="${av(m.seed,m.bg)}"><span class="on-dot"></span></div><div><div class="mname">${m.name}${m.isMe?' (tú)':''}</div><div class="mrole">${m.role}</div></div></div>`).join('');
   const inviteSlot=l.members.length<5?`<div class="member-invite" onclick="openInviteFromRoom()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 7a4 4 0 100 8 4 4 0 000-8M20 8v6M23 11h-6"/></svg> Invitar amigo (${5-l.members.length} libre${5-l.members.length===1?'':'s'})</div>`:'';
   const gid=l.game||'minecraft';
-  return `<div class="room"><div class="room-header"><div style="flex:1"><div class="rh-title">${l.name}</div><div class="rh-cats" style="margin-bottom:5px">${gameTag(gid,l.mode)}</div><div class="rh-cats">${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div></div>
-    <span class="compat high" style="font-size:13px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat. promedio</span>
-    <span class="room-timer"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> 1:24:30</span>
-    <button class="btn btn-danger btn-sm" onclick="askLeaveLobi()">Salir</button></div>
+  return `<div class="room"><div class="room-header"><div style="flex:1;min-width:0"><div class="rh-title">${l.name}</div><div class="rh-cats rh-desktop-only" style="margin-bottom:5px">${gameTag(gid,l.mode)}</div><div class="rh-cats rh-desktop-only">${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div></div>
+    <span class="compat high rh-desktop-only" style="font-size:13px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat. promedio</span>
+    <span class="room-timer" id="room-timer-badge"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> <span id="room-timer-text">--:--</span></span>
+    <button class="btn btn-danger btn-sm rh-desktop-only" onclick="askLeaveLobi()">Salir</button>
+    <button class="rh-more" onclick="toggleRoomInfo()" title="Más"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>
+    <div class="room-info-drop" id="room-info-drop">
+      <div class="rid-cats">${gameTag(gid,l.mode)}${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
+      <div class="rid-compat"><span class="dot" style="background:var(--color-success)"></span> ${l.compat}% compatibilidad promedio</div>
+      <button class="btn btn-danger btn-sm" style="width:100%" onclick="askLeaveLobi()">Salir del Lobi</button>
+    </div>
     <div class="room-mobile-tabs"><button class="${roomTab==='members'?'on':''}" onclick="setRoomTab('members')">Jugadores</button><button class="${roomTab==='chat'?'on':''}" onclick="setRoomTab('chat')">Chat</button><button class="${roomTab==='side'?'on':''}" onclick="setRoomTab('side')">Escritorio</button></div>
     <div class="room-body">
       <div class="room-col room-members ${roomTab==='members'?'mshow':''}"><div class="colhead">En el Lobi · ${l.members.length}/5</div>${members}${inviteSlot}</div>
@@ -2616,7 +2789,17 @@ function roomView(){
         <div class="side-block"><div class="colhead">Encuestas <span class="add" onclick="openPollBuilder()">+</span></div><div id="side-polls-box">${renderSidePolls()}</div></div>
         <button class="btn btn-secondary btn-block btn-sm" onclick="openModal('modal-extend')">Simular: Lobi por cerrar</button></div></div></div>`;
 }
-function setRoomTab(t){roomTab=t;navTo('room');}
+function setRoomTab(t){roomTab=t;cerrarRoomInfo();navTo('room');}
+
+/* El menú "⋯" del header móvil: categorías, compat y salir (Problema 8). */
+function toggleRoomInfo(){
+  const d=document.getElementById('room-info-drop');
+  if(d) d.classList.toggle('open');
+}
+function cerrarRoomInfo(){
+  const d=document.getElementById('room-info-drop');
+  if(d) d.classList.remove('open');
+}
 
 /* ====== OBJETIVOS (crear, arrastrar para editar, máx 7) ====== */
 function getObjectives(){
