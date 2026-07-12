@@ -895,32 +895,60 @@ let solicitudes = [];          // filas de la tabla 'amistades' que me involucra
 let canalAmistades = null;
 
 /* Traigo de la base todas mis amistades (pendientes y aceptadas). */
+let miId = null;   // mi id de usuario, para no pedirlo a cada rato
+
 async function cargarAmistades(){
   try{
     const { data:{ user } } = await sb.auth.getUser();
-    if(!user) return;
+    if(!user){ console.warn('[amistades] no hay usuario logueado'); return; }
+    miId = user.id;
+
     const { data, error } = await sb.from('amistades').select('*')
       .or(`de_usuario.eq.${user.id},para_usuario.eq.${user.id}`)
       .order('created_at',{ascending:false});
-    if(error) throw error;
+
+    /* Antes este error se tragaba en silencio. Ahora avisa. */
+    if(error){
+      console.error('[amistades] error al leer:', error);
+      toast('⚠️ No se pudieron leer las amistades: ' + error.message);
+      return;
+    }
 
     solicitudes = data || [];
-    const yo = user.id;
     friends = solicitudes
       .filter(a => a.estado === 'aceptada')
-      .map(a => a.de_usuario === yo ? a.para_nombre : a.de_nombre);
+      .map(a => a.de_usuario === miId ? a.para_nombre : a.de_nombre);
+
+    console.log('[amistades] cargadas:', solicitudes.length, '| amigos:', friends.length);
 
     renderBadges();
-    if(state.view === 'friends') navTo('friends');
-  }catch(e){ /* si falla, la lista queda como está */ }
+    /* Repinto la pantalla actual si muestra amistades */
+    if(state.view === 'friends' || state.view === 'search' || state.view === 'profile') navTo(state.view);
+  }catch(e){
+    console.error('[amistades] excepción:', e);
+    toast('⚠️ Falló la carga de amistades: ' + e.message);
+  }
 }
 
-/* ¿En qué estado estoy con esta persona? Determina qué botón mostrar. */
+/* ¿En qué estado estoy con esta persona? Determina qué botón mostrar.
+   Comparo por id_usuario (el nombre puede repetirse). */
+function filaAmistad(nombre){
+  const p = findPlayer(nombre);
+  const otroId = p && p.id_usuario;
+  if(otroId && miId){
+    return solicitudes.find(x =>
+      (x.de_usuario === miId && x.para_usuario === otroId) ||
+      (x.de_usuario === otroId && x.para_usuario === miId));
+  }
+  /* Sin ids, caigo al nombre */
+  return solicitudes.find(x => x.de_nombre === nombre || x.para_nombre === nombre);
+}
+
 function estadoAmistad(nombre){
-  const a = solicitudes.find(x => x.de_nombre === nombre || x.para_nombre === nombre);
+  const a = filaAmistad(nombre);
   if(!a) return 'ninguno';
   if(a.estado === 'aceptada') return 'amigos';
-  return a.de_nombre === state.displayName ? 'enviada' : 'recibida';
+  return a.de_usuario === miId ? 'enviada' : 'recibida';
 }
 
 /* Le mando solicitud a alguien. Si esa persona YA me mandó una, nos hacemos
@@ -928,7 +956,7 @@ function estadoAmistad(nombre){
 async function enviarSolicitud(nombre){
   try{
     const { data:{ user } } = await sb.auth.getUser();
-    if(!user) return;
+    if(!user){ toast('⚠️ Necesitás iniciar sesión'); return; }
     if(nombre === state.displayName){ toast('🙃 No podés agregarte a vos mismo'); return; }
 
     const destino = findPlayer(nombre);
@@ -937,18 +965,31 @@ async function enviarSolicitud(nombre){
       return;
     }
 
-    /* ¿Ya me habías mandado solicitud vos a mí? Entonces somos amigos. */
-    const cruzada = solicitudes.find(x =>
-      x.de_nombre === nombre && x.para_nombre === state.displayName && x.estado === 'pendiente');
+    /* Le pregunto a la BASE, no a mi memoria: mi memoria puede estar vieja.
+       Esto arregla el bug de "no puedo volver a mandarle solicitud". */
+    const { data: existentes, error: errLeer } = await sb.from('amistades').select('*')
+      .or(`and(de_usuario.eq.${user.id},para_usuario.eq.${destino.id_usuario}),and(de_usuario.eq.${destino.id_usuario},para_usuario.eq.${user.id})`);
 
-    if(cruzada){
-      await sb.from('amistades').update({ estado:'aceptada' }).eq('id', cruzada.id);
-      toast(`🎉 ¡Ya son amigos con ${nombre}!`);
+    if(errLeer){
+      console.error('[amistades] error al revisar:', errLeer);
+      toast('⚠️ ' + errLeer.message);
       return;
     }
 
-    const yaHay = solicitudes.find(x => x.de_nombre === nombre || x.para_nombre === nombre);
-    if(yaHay){ toast('Ya hay una solicitud con esa persona'); return; }
+    const yaHay = (existentes || [])[0];
+
+    if(yaHay){
+      if(yaHay.estado === 'aceptada'){ toast('Ya son amigos 🙂'); return; }
+      /* Si ELLA me mandó solicitud a mí, acepto: los dos quieren. */
+      if(yaHay.para_usuario === user.id){
+        await sb.from('amistades').update({ estado:'aceptada' }).eq('id', yaHay.id);
+        toast(`🎉 ¡Ya son amigos con ${nombre}!`);
+        cargarAmistades();
+        return;
+      }
+      toast('Ya le mandaste solicitud ⏳');
+      return;
+    }
 
     const { error } = await sb.from('amistades').insert({
       de_usuario: user.id,
@@ -958,8 +999,13 @@ async function enviarSolicitud(nombre){
       estado: 'pendiente'
     });
     if(error) throw error;
+
     toast('✅ Solicitud enviada');
-  }catch(e){ toast('⚠️ No se envió: ' + e.message); }
+    cargarAmistades();   // refresco por si Realtime tarda
+  }catch(e){
+    console.error('[amistades] error al enviar:', e);
+    toast('⚠️ No se envió: ' + e.message);
+  }
 }
 
 /* Acepto: solo cambio el sello de la fila. No creo nada nuevo. */
@@ -968,7 +1014,8 @@ async function aceptarSolicitud(id){
     const { error } = await sb.from('amistades').update({ estado:'aceptada' }).eq('id', id);
     if(error) throw error;
     toast('🎉 ¡Nuevo amigo!');
-  }catch(e){ toast('⚠️ No se pudo aceptar: ' + e.message); }
+    cargarAmistades();
+  }catch(e){ console.error('[amistades]',e); toast('⚠️ No se pudo aceptar: ' + e.message); }
 }
 
 /* Rechazo o elimino: la fila se va. */
@@ -976,29 +1023,46 @@ async function rechazarSolicitud(id){
   try{
     const { error } = await sb.from('amistades').delete().eq('id', id);
     if(error) throw error;
-  }catch(e){ toast('⚠️ No se pudo: ' + e.message); }
+    cargarAmistades();
+  }catch(e){ console.error('[amistades]',e); toast('⚠️ No se pudo: ' + e.message); }
 }
 
 /* Elimino a un amigo (busco la fila que nos une y la borro). */
 async function eliminarAmigo(nombre){
-  const a = solicitudes.find(x =>
-    (x.de_nombre === nombre || x.para_nombre === nombre) && x.estado === 'aceptada');
-  if(!a) return;
+  const a = filaAmistad(nombre);
+  if(!a || a.estado !== 'aceptada') return;
   await rechazarSolicitud(a.id);
   toast(`Ya no sos amigo de ${nombre}`);
 }
 
-/* Me sintonizo: cualquier cambio en mis amistades me llega solo. */
+/* Me sintonizo: cualquier cambio en mis amistades me llega solo.
+   Uso un nombre de canal fijo (antes usaba displayName, que al arrancar
+   podía estar vacío y el canal nacía roto). */
 function suscribirseAmistades(){
   if(canalAmistades) return;
-  canalAmistades = sb.channel('amistades-' + state.displayName)
+  canalAmistades = sb.channel('canal-amistades')
     .on('postgres_changes', { event:'*', schema:'public', table:'amistades' },
-      ()=>{ cargarAmistades(); })
-    .subscribe();
+      (payload)=>{
+        console.log('[amistades] cambio en vivo:', payload.eventType);
+        cargarAmistades();
+      })
+    .subscribe((estado)=>{
+      console.log('[amistades] canal:', estado);
+      if(estado === 'CHANNEL_ERROR'){
+        console.warn('[amistades] el canal falló — ¿está Realtime encendido en la tabla?');
+      }
+    });
+
+  /* Red de seguridad: si Realtime no llega, refresco cada 20 segundos igual.
+     Así las solicitudes aparecen aunque el canal esté caído. */
+  if(!window._relojAmistades){
+    window._relojAmistades = setInterval(()=>{ if(miId) cargarAmistades(); }, 20000);
+  }
 }
 
 function desuscribirseAmistades(){
   if(canalAmistades){ sb.removeChannel(canalAmistades); canalAmistades=null; }
+  if(window._relojAmistades){ clearInterval(window._relojAmistades); window._relojAmistades=null; }
 }
 
 /* ====== CAMBIO 2: USUARIOS REALES RECOMENDADOS ====== */
@@ -1915,7 +1979,7 @@ function botonAmistad(nombre){
   if(nombre === state.displayName) return '';
 
   const est = estadoAmistad(nombre);
-  const a = solicitudes.find(x => x.de_nombre === nombre || x.para_nombre === nombre);
+  const a = filaAmistad(nombre);
 
   if(est === 'amigos')
     return `<button class="btn btn-secondary btn-sm" onclick="eliminarAmigo('${nombre}')">✓ Amigos</button>`;
@@ -1998,7 +2062,7 @@ function playerCard(p){
 function miniBotonAmistad(p){
   if(p.name === state.displayName || !p.real) return '';
   const est = estadoAmistad(p.name);
-  const a = solicitudes.find(x => x.de_nombre === p.name || x.para_nombre === p.name);
+  const a = filaAmistad(p.name);
 
   if(est === 'amigos')
     return `<button class="mini-btn" style="border-color:var(--color-success)" title="Ya son amigos" onclick="eliminarAmigo('${p.name}')"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>`;
