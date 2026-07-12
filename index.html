@@ -1001,17 +1001,20 @@ let conteoMiembros={};  // cuántos miembros tiene cada Lobi (para las tarjetas)
 async function unirmeAlLobi(lobiId){
   try{
     const { data:{ user } } = await sb.auth.getUser();
-    if(!user) return;
+    if(!user){ alert('PISTA A: no hay usuario conectado'); return; }
     // Si ya estoy, no me agrego de nuevo
-    const { data:ya } = await sb.from('miembros').select('id').eq('lobi_id',lobiId).eq('id_usuario',user.id);
-    if(ya && ya.length>0) return;
-    await sb.from('miembros').insert({
+    const { data:ya, error:errYa } = await sb.from('miembros').select('id').eq('lobi_id',lobiId).eq('id_usuario',user.id);
+    if(errYa){ alert('PISTA B: error al revisar si ya estoy = '+errYa.message); }
+    if(ya && ya.length>0){ alert('PISTA C: ya estaba en el lobi, no me agrego'); return; }
+    const { error:errIns } = await sb.from('miembros').insert({
       lobi_id: lobiId,
       id_usuario: user.id,
       nombre: state.displayName,
       estilo: state.me.style || 'Chill'
     });
-  }catch(e){ /* si falla, seguimos igual */ }
+    if(errIns){ alert('PISTA D: NO se pudo insertar = '+errIns.message+'\n(lobi: '+lobiId+', nombre: '+state.displayName+')'); }
+    else { alert('PISTA E: insertado OK como '+state.displayName+' en '+lobiId); }
+  }catch(e){ alert('PISTA F: excepcion = '+e.message); }
 }
 
 /* Me saco de la lista de miembros al salir. */
