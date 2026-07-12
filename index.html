@@ -334,6 +334,7 @@ input,select,textarea{font-family:inherit}
 .pop-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
 .pop-tags .tag{font-size:11px;padding:4px 9px}
 .pop-actions{display:flex;gap:8px}
+.pop-actions .btn{flex:1}
 
 .poll-opt-input{display:flex;align-items:center;gap:8px;margin-bottom:9px}
 .poll-opt-input input{flex:1;background:var(--color-bg-deep);border:1px solid var(--color-border);border-radius:11px;padding:11px 13px;color:var(--color-text);font-size:14px}
@@ -666,7 +667,7 @@ input,select,textarea{font-family:inherit}
   <div class="main">
     <div class="topbar">
       <div class="brand-row mobile-topbar-only" style="gap:9px"><img class="brand-logo-img" data-lobbylogo src="" style="width:34px;height:34px"><div class="brand-name" style="font-size:20px">Lobby</div></div>
-      <div class="search"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input type="text" placeholder="Buscar jugadores o Lobis…"></div>
+      <div class="search"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input type="text" id="search-top" placeholder="Buscar jugadores o Lobis…" oninput="alBuscar(this.value)"></div>
       <div class="topbar-spacer"></div>
       <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Cambiar tema" style="margin-right:10px"></button>
       <button class="icon-btn" id="notif-btn" onclick="toggleNotif(event)"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg><span class="badge hidden" id="notif-badge"></span></button>
@@ -1024,12 +1025,18 @@ async function cargarUsuariosReales(){
       .map(p => ({
         name: p.nombre || p.nick || 'Jugador',
         id_usuario: p.id_usuario,        // necesario para mandarle solicitud (Problema 11)
+        nick: p.nick || p.nombre || 'jugador',
+        pais: p.pais || 'Costa Rica',
         game: p.estilo ? ('Estilo · ' + p.estilo) : 'Jugador de Lobby',
         compat: calcCompat(p),
         seed: p.nick || p.nombre || 'user',
         bg: 'c84dff',
         rating: p.reputacion || 5.0,
+        ratings: 0,
         style: p.estilo || 'Chill',
+        mode: p.modo || 'Survival',       // faltaban: sin esto el perfil explotaba
+        level: p.nivel || 'Medio',
+        goals: ['Jugar y hacer amigos'],
         real: true
       }))
       .sort((a,b)=> b.compat - a.compat); // más compatibles primero
@@ -1922,12 +1929,87 @@ function botonAmistad(nombre){
   return `<button class="btn btn-primary btn-sm" onclick="enviarSolicitud('${nombre}')">+ Agregar amigo</button>`;
 }
 
+/* ====== BUSCADOR (Problema 11) ======
+   Antes era una cajita decorativa: no tenía id, ni oninput, ni hacía nada.
+   Ahora busca de verdad, y separa jugadores de Lobis. */
+let busqueda = '';
+let pestanaBusqueda = 'gente';   // 'gente' | 'lobis'
+
+function alBuscar(v){
+  busqueda = (v||'').trim();
+  if(state.view !== 'search'){ navTo('search'); }
+  else { pintarResultados(); }
+}
+
+function cambiarPestanaBusqueda(cual){
+  pestanaBusqueda = cual;
+  navTo('search');
+}
+
+/* Busca por nombre y por nick, sin importar mayúsculas ni tildes. */
+function normalizar(s){
+  return (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+
+function buscarJugadores(){
+  const q = normalizar(busqueda);
+  const todos = (realPlayers || []).filter(p => p.name !== state.displayName);
+  if(!q) return todos;
+  return todos.filter(p => normalizar(p.name).includes(q) || normalizar(p.nick).includes(q));
+}
+
+function buscarLobis(){
+  const q = normalizar(busqueda);
+  const todos = realLobis || [];
+  if(!q) return todos;
+  return todos.filter(l =>
+    normalizar(l.name).includes(q) ||
+    normalizar(l.mode).includes(q) ||
+    (l.cats||[]).some(c => normalizar(c).includes(q))
+  );
+}
+
+function pintarResultados(){
+  const caja = document.getElementById('search-results');
+  if(caja) caja.innerHTML = htmlResultados();
+}
+
+function htmlResultados(){
+  if(pestanaBusqueda === 'lobis'){
+    const r = buscarLobis();
+    if(!r.length) return `<div class="side-empty" style="max-width:420px">${busqueda ? 'Ningún Lobi con ese nombre.' : 'No hay Lobis activos ahora mismo.'}</div>`;
+    return `<div class="lobi-row">${r.map(lobiCard).join('')}</div>`;
+  }
+  const r = buscarJugadores();
+  if(!r.length) return `<div class="side-empty" style="max-width:420px">${busqueda ? 'Nadie con ese nombre todavía.' : 'Todavía no hay otros jugadores registrados.'}</div>`;
+  return `<div class="player-grid">${r.map(playerCard).join('')}</div>`;
+}
+
 function playerCard(p){
   return `<div class="player-card"><img class="av" src="${av(p.seed,p.bg)}">
-    <div class="pinfo"><div class="pname">${p.name} <span class="star-rating-mini">★ ${p.rating}</span></div><div class="pgame">${p.game}</div>
+    <div class="pinfo"><div class="pname">${escapeHtml(p.name)} <span class="star-rating-mini">★ ${p.rating}</span></div><div class="pgame">${escapeHtml(p.game)}</div>
       <div class="pcompat" style="color:${compatColor(p.compat)}">${p.compat}% · ${compatLabel(p.compat)}</div></div>
     <div class="pactions"><button class="mini-btn" onclick="viewFullProfile('${p.name}')" title="Ver perfil"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0116 0v1"/></svg></button>
-      <button class="mini-btn" onclick="openConversation('${p.name}')" title="Mensaje"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg></button></div></div>`;
+      <button class="mini-btn" onclick="openConversation('${p.name}')" title="Mensaje"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg></button>
+      ${miniBotonAmistad(p)}</div></div>`;
+}
+
+/* El mismo botón de amistad, pero chiquito, para las tarjetas (Problema 11). */
+function miniBotonAmistad(p){
+  if(p.name === state.displayName || !p.real) return '';
+  const est = estadoAmistad(p.name);
+  const a = solicitudes.find(x => x.de_nombre === p.name || x.para_nombre === p.name);
+
+  if(est === 'amigos')
+    return `<button class="mini-btn" style="border-color:var(--color-success)" title="Ya son amigos" onclick="eliminarAmigo('${p.name}')"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>`;
+
+  if(est === 'enviada')
+    return `<button class="mini-btn" title="Solicitud enviada — clic para cancelar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-muted)" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>`;
+
+  if(est === 'recibida')
+    return `<button class="mini-btn" style="border-color:var(--color-primary)" title="Te mandó solicitud — clic para aceptar" onclick="aceptarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-primary)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>`;
+
+  return `<button class="mini-btn" title="Agregar amigo" onclick="enviarSolicitud('${p.name}')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0112 0v1M19 8v6M22 11h-6"/></svg></button>`;
 }
 
 /* ============ VISTAS ============ */
@@ -1936,9 +2018,13 @@ const views={
     <div class="sec-head"><div class="sec-title">Lobis recomendados para ti</div><a class="sec-link" onclick="navTo('lobis')">Ver todos →</a></div><div class="lobi-row">${lobisParaMostrar(4).map(lobiCard).join('')}</div>
     <div class="sec-head"><div class="sec-title">Jugadores compatibles contigo</div><a class="sec-link" onclick="navTo('search')">Ver todos →</a></div><div class="player-grid">${playersParaMostrar(6).map(playerCard).join('')}</div>
     <div class="cta-band"><div><h3>¿No sabes con quién jugar?</h3><p>Deja que Lobby encuentre tu mejor escuadra automáticamente.</p></div><button class="btn btn-primary" onclick="emparejar()">⚡ Emparejar ahora</button></div>`,
-  search:()=>`<div class="hero-line">Buscar</div><div class="hero-sub">Filtra jugadores por modo, estilo y compatibilidad.</div>
-    <div class="chip-grid" style="margin-bottom:22px"><button class="chip sel">Todos</button><button class="chip">Survival</button><button class="chip">BedWars</button><button class="chip">PvP</button><button class="chip">Constructor</button><button class="chip">Chill</button></div>
-    <div class="player-grid">${playersParaMostrar().map(playerCard).join('')}</div>`,
+  search:()=>`<div class="hero-line">Buscar</div><div class="hero-sub">Encontrá gente por su nombre, o Lobis por su juego.</div>
+    <div class="search" style="max-width:520px;margin-bottom:18px"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input type="text" id="search-page-input" placeholder="${pestanaBusqueda==='lobis'?'Buscar Lobis…':'Buscar por nombre o nick…'}" value="${escapeHtml(busqueda).replace(/"/g,'&quot;')}" oninput="alBuscar(this.value)"></div>
+    <div class="chip-grid" style="margin-bottom:22px">
+      <button class="chip ${pestanaBusqueda==='gente'?'sel':''}" onclick="cambiarPestanaBusqueda('gente')">👤 Gente</button>
+      <button class="chip ${pestanaBusqueda==='lobis'?'sel':''}" onclick="cambiarPestanaBusqueda('lobis')">🎮 Lobis</button>
+    </div>
+    <div id="search-results">${htmlResultados()}</div>`,
   friends:()=>{
     const yo = state.displayName;
 
@@ -2084,8 +2170,14 @@ function gameAnswersHtml(p){
   }).join('')}</div>`;
 }
 function fullProfileView(name){
-  const p=findPlayer(name);const dash=2*Math.PI*33;const off=dash*(1-p.compat/100);
-  return `<div class="profile-banner"></div><div class="profile-head"><img class="pav" src="${av(p.seed,p.bg)}"><div class="pmeta"><h2>${p.name}</h2><div class="psub">🇨🇷 Costa Rica · @${p.name.toLowerCase()}</div></div>
+  const bruto=findPlayer(name);
+  /* Blindaje: si a un perfil real le falta un campo, no rompemos la página */
+  const p={ mode:'Survival', style:'Chill', level:'Medio', goals:['Jugar'],
+            rating:5.0, ratings:0, compat:90, pais:'Costa Rica',
+            nick:(bruto.name||'jugador').toLowerCase(), ...bruto };
+  if(!Array.isArray(p.goals)) p.goals=['Jugar'];
+  const dash=2*Math.PI*33;const off=dash*(1-p.compat/100);
+  return `<div class="profile-banner"></div><div class="profile-head"><img class="pav" src="${av(p.seed,p.bg)}"><div class="pmeta"><h2>${escapeHtml(p.name)}</h2><div class="psub">🇨🇷 ${escapeHtml(p.pais)} · @${escapeHtml(p.nick)}</div></div>
     <div class="profile-actions"><button class="btn btn-secondary btn-sm" onclick="openConversation('${p.name}')"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg> Mensaje</button>${botonAmistad(p.name)}</div></div>
     <div class="compat-banner"><div class="compat-ring"><svg width="78" height="78"><circle cx="39" cy="39" r="33" fill="none" stroke="#2A2A35" stroke-width="7"/><circle cx="39" cy="39" r="33" fill="none" stroke="${compatColor(p.compat)}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${dash}" stroke-dashoffset="${off}"/></svg><span class="pct">${p.compat}%</span></div>
       <div class="ctext"><h4 style="color:${compatColor(p.compat)}">${compatLabel(p.compat)} contigo</h4><p>Comparten modo ${p.mode} y estilo ${p.style}. ${p.compat>=85?'Encajarían muy bien en un Lobi.':'Podrían jugar bien juntos.'}</p></div></div>
@@ -2914,7 +3006,8 @@ function showProfilePopover(e,name){
   pop.innerHTML=`<div class="pop-banner"></div><img class="pop-av" src="${av(p.seed,p.bg)}"><div class="pop-body"><div class="pop-name">${p.name}${me?' (tú)':''}</div><div class="pop-sub">★ ${p.rating} · ${gameLabel}</div>${me?'':`<div class="pop-compat"><span>Compatibilidad contigo</span><b style="color:${compatColor(p.compat)}">${p.compat}%</b></div>`}
     <div style="font-size:11px;color:var(--color-muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">En este Lobi</div>
     <div class="pop-tags"><span class="tag pri">${state.currentLobi?state.currentLobi.mode:p.mode}</span><span class="tag pri">${p.style}</span><span class="tag">${p.level}</span></div>
-    ${me?'':`<div class="pop-actions"><button class="btn btn-secondary btn-sm" style="flex:1" onclick="openConversation('${p.name}')">Mensaje</button><button class="btn btn-primary btn-sm" style="flex:1" onclick="viewFullProfile('${p.name}')">Ver perfil</button></div>`}</div>`;
+    ${me?'':`<div class="pop-actions"><button class="btn btn-secondary btn-sm" style="flex:1" onclick="openConversation('${p.name}')">Mensaje</button><button class="btn btn-secondary btn-sm" style="flex:1" onclick="viewFullProfile('${p.name}')">Ver perfil</button></div>
+    <div class="pop-actions" style="margin-top:8px">${botonAmistad(p.name)}</div>`}</div>`;
   pop.classList.add('active');
   const px=Math.min(e.clientX+10,window.innerWidth-300),py=Math.min(e.clientY-10,window.innerHeight-360);
   pop.style.left=Math.max(12,px)+'px';pop.style.top=Math.max(12,py)+'px';
