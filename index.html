@@ -1067,6 +1067,83 @@ async function cargarConteoMiembros(){
   }catch(e){ conteoMiembros={}; }
 }
 
+/* ====== ENCUESTAS DEL LOBI EN LA NUBE (Problema 6) ====== */
+
+/* Lee las encuestas reales de este Lobi con sus votos. */
+async function cargarEncuestas(lobiId){
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    const { data:enc, error } = await sb.from('encuestas').select('*').eq('lobi_id',lobiId).order('created_at',{ascending:true});
+    if(error) throw error;
+    if(!enc || !enc.length){ 
+      // Limpiamos las encuestas de este lobi
+      Object.keys(state.polls).forEach(k=>{ if(state.polls[k].lobi===lobiId) delete state.polls[k]; });
+      refreshSidePolls(); return; 
+    }
+    // Traemos todos los votos de estas encuestas
+    const ids = enc.map(e=>e.id);
+    const { data:vts } = await sb.from('votos').select('*').in('encuesta_id', ids);
+
+    // Limpiamos las de este lobi y las reconstruimos
+    Object.keys(state.polls).forEach(k=>{ if(state.polls[k].lobi===lobiId) delete state.polls[k]; });
+
+    enc.forEach(e=>{
+      const opts = (e.opciones||'').split('|');
+      const votes = opts.map(()=>0);
+      const myVotes = [];
+      (vts||[]).filter(v=>v.encuesta_id===e.id).forEach(v=>{
+        if(v.opcion>=0 && v.opcion<votes.length) votes[v.opcion]++;
+        if(user && v.id_usuario===user.id) myVotes.push(v.opcion);
+      });
+      const pid = 'db-'+e.id;
+      state.polls[pid] = {
+        id: pid, dbId: e.id, lobi: lobiId, q: e.pregunta, opts, type: e.tipo||'single',
+        dur: e.duracion||60, votes, myVotes, closed: !!e.cerrada,
+        endsAt: e.termina_en ? new Date(e.termina_en).getTime() : Date.now()+60000
+      };
+      // Si ya pasó el tiempo, la marcamos cerrada
+      if(!state.polls[pid].closed && state.polls[pid].endsAt <= Date.now()){
+        state.polls[pid].closed = true;
+      }
+    });
+    refreshSidePolls();
+  }catch(e){ /* si falla, no rompe */ }
+}
+
+/* Guarda una encuesta nueva en la nube. */
+async function guardarEncuesta(lobiId, q, opts, tipo, dur){
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    const terminaEn = new Date(Date.now() + dur*1000).toISOString();
+    const { error } = await sb.from('encuestas').insert({
+      lobi_id: lobiId, pregunta: q, opciones: opts.join('|'),
+      tipo: tipo, duracion: dur, termina_en: terminaEn,
+      cerrada: false, id_creador: user.id
+    });
+    if(error) throw error;
+  }catch(e){ toast('⚠️ No se creó: '+e.message); }
+}
+
+/* Registra o cambia mi voto en la nube. */
+async function votarEnNube(encuestaId, opcion, tipo){
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(tipo==='single'){
+      // Voto único: borro mi voto anterior y pongo el nuevo
+      await sb.from('votos').delete().eq('encuesta_id',encuestaId).eq('id_usuario',user.id);
+      await sb.from('votos').insert({ encuesta_id: encuestaId, id_usuario: user.id, opcion: opcion });
+    } else {
+      // Voto múltiple: si ya voté esa opción, la quito; si no, la agrego
+      const { data:ya } = await sb.from('votos').select('id').eq('encuesta_id',encuestaId).eq('id_usuario',user.id).eq('opcion',opcion);
+      if(ya && ya.length>0){
+        await sb.from('votos').delete().eq('encuesta_id',encuestaId).eq('id_usuario',user.id).eq('opcion',opcion);
+      } else {
+        await sb.from('votos').insert({ encuesta_id: encuestaId, id_usuario: user.id, opcion: opcion });
+      }
+    }
+  }catch(e){ toast('⚠️ No se registró el voto'); }
+}
+
 /* ====== OBJETIVOS DEL LOBI EN LA NUBE (Problema 6) ====== */
 let canalDesk=null;
 
@@ -1114,12 +1191,16 @@ async function borrarObjetivoNube(dbId){
   }catch(e){ /* si falla, seguimos */ }
 }
 
-/* Sintonizo el canal del Lobi Desk (objetivos en vivo). */
+/* Sintonizo el canal del Lobi Desk (objetivos, encuestas y votos en vivo). */
 function suscribirseDesk(lobiId){
   desuscribirseDesk();
   canalDesk = sb.channel('desk-'+lobiId)
     .on('postgres_changes', { event:'*', schema:'public', table:'objetivos', filter:'lobi_id=eq.'+lobiId },
       ()=>{ cargarObjetivos(lobiId); })
+    .on('postgres_changes', { event:'*', schema:'public', table:'encuestas', filter:'lobi_id=eq.'+lobiId },
+      ()=>{ cargarEncuestas(lobiId); })
+    .on('postgres_changes', { event:'*', schema:'public', table:'votos' },
+      ()=>{ cargarEncuestas(lobiId); })
     .subscribe();
 }
 
@@ -1817,8 +1898,9 @@ function enterLobi(lobi,created){
     // Miembros en la nube: me uno, cargo la lista real y me sintonizo
     unirmeAlLobi(c.id).then(()=>{ cargarMiembros(c.id); });
     suscribirseMiembros(c.id);
-    // Lobi Desk: cargo los objetivos y me sintonizo (Problema 6)
+    // Lobi Desk: cargo los objetivos y encuestas, y me sintonizo (Problema 6)
     cargarObjetivos(c.id);
+    cargarEncuestas(c.id);
     suscribirseDesk(c.id);
   }
   renderActiveLobiSidebar();updateCenterNav();
@@ -2110,10 +2192,19 @@ function publishPoll(){
   if(!q){toast('Escribe la pregunta');return;}if(opts.length<2){toast('Pon al menos 2 opciones');return;}
   const type=document.querySelector('#poll-type button.on').dataset.v;
   const dur=parseInt(document.querySelector('#poll-dur button.on').dataset.v);
-  const id='p'+Date.now();
   const lobiId=state.currentLobi.id;
+
+  if(lobiId.startsWith('real-')){
+    // Lobi real: se guarda en la nube y el canal en vivo la mostrará a todos
+    guardarEncuesta(lobiId, q, opts, type, dur);
+    closeModal('modal-poll');
+    toast('✅ Encuesta creada');
+    return;
+  }
+
+  // Lobi de ejemplo: comportamiento local de siempre
+  const id='p'+Date.now();
   state.polls[id]={id,lobi:lobiId,q,opts,type,dur,votes:opts.map(()=>0),myVotes:[],closed:false,endsAt:Date.now()+dur*1000};
-  // mostrar la encuesta recién creada en el escritorio
   const list=lobiPolls(lobiId);
   state._pollIndex[lobiId]=list.length-1;
   closeModal('modal-poll');refreshSidePolls();
@@ -2145,7 +2236,18 @@ function renderDeskPoll(id){
   const left=p.closed?'Cerrada':`<span id="poll-left-${id}"></span>`;
   return resultBanner+`<div class="desk-poll" id="deskpoll-${id}"><div class="cp-head" style="font-size:10px;color:var(--color-primary);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px">📊 ${p.type==='multi'?'Selección múltiple':'Única opción'}</div><div class="dp-q">${escapeHtml(p.q)}</div>${opts}<div class="dp-foot"><span>${total} voto${total===1?'':'s'} · ${left}</span>${p.closed?'':`<span class="dp-close" onclick="closePoll('${id}')">Cerrar</span>`}</div></div>`;
 }
-function votePoll(id,i){const p=state.polls[id];if(!p||p.closed)return;if(p.type==='single'){p.myVotes.forEach(v=>p.votes[v]--);p.myVotes=[i];p.votes[i]++;}else{const idx=p.myVotes.indexOf(i);if(idx>=0){p.myVotes.splice(idx,1);p.votes[i]--;}else{p.myVotes.push(i);p.votes[i]++;}}refreshSidePolls();}
+function votePoll(id,i){
+  const p=state.polls[id];if(!p||p.closed)return;
+  if(p.dbId){
+    // Encuesta real: el voto va a la nube y el canal en vivo lo mostrará a todos
+    votarEnNube(p.dbId, i, p.type);
+    return;
+  }
+  // Encuesta de ejemplo: comportamiento local
+  if(p.type==='single'){p.myVotes.forEach(v=>p.votes[v]--);p.myVotes=[i];p.votes[i]++;}
+  else{const idx=p.myVotes.indexOf(i);if(idx>=0){p.myVotes.splice(idx,1);p.votes[i]--;}else{p.myVotes.push(i);p.votes[i]++;}}
+  refreshSidePolls();
+}
 function tickPoll(id){const p=state.polls[id];if(!p||p.closed)return;const el=document.getElementById('poll-left-'+id);const secs=Math.max(0,Math.round((p.endsAt-Date.now())/1000));if(el)el.textContent=`${secs}s restantes`;if(secs>0&&!p.closed)setTimeout(()=>tickPoll(id),1000);}
 function closePoll(id){
   const p=state.polls[id];if(!p||p.closed)return;p.closed=true;clearTimeout(p.timer);
