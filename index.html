@@ -1067,6 +1067,66 @@ async function cargarConteoMiembros(){
   }catch(e){ conteoMiembros={}; }
 }
 
+/* ====== OBJETIVOS DEL LOBI EN LA NUBE (Problema 6) ====== */
+let canalDesk=null;
+
+/* Lee los objetivos reales de este Lobi desde la nube. */
+async function cargarObjetivos(lobiId){
+  try{
+    const { data, error } = await sb.from('objetivos').select('*').eq('lobi_id',lobiId).order('created_at',{ascending:true});
+    if(error) throw error;
+    state.objectives[lobiId] = (data||[]).map(o=>({
+      id: 'db-'+o.id,
+      dbId: o.id,
+      name: o.nombre,
+      type: 'pct',
+      min: 0, max: 100,
+      pct: o.progreso || 0,
+      owner: o.creador || 'Alguien'
+    }));
+    refreshObjectives();
+  }catch(e){ /* si falla, no rompe */ }
+}
+
+/* Guarda un objetivo nuevo en la nube. */
+async function guardarObjetivo(lobiId, nombre){
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    const { error } = await sb.from('objetivos').insert({
+      lobi_id: lobiId, nombre: nombre, progreso: 0,
+      creador: state.displayName, id_creador: user.id
+    });
+    if(error) throw error;
+  }catch(e){ toast('⚠️ No se guardó: '+e.message); }
+}
+
+/* Actualiza el progreso de un objetivo en la nube. */
+async function actualizarProgresoObjetivo(dbId, pct){
+  try{
+    await sb.from('objetivos').update({ progreso: Math.round(pct) }).eq('id', dbId);
+  }catch(e){ /* si falla, seguimos */ }
+}
+
+/* Borra un objetivo de la nube. */
+async function borrarObjetivoNube(dbId){
+  try{
+    await sb.from('objetivos').delete().eq('id', dbId);
+  }catch(e){ /* si falla, seguimos */ }
+}
+
+/* Sintonizo el canal del Lobi Desk (objetivos en vivo). */
+function suscribirseDesk(lobiId){
+  desuscribirseDesk();
+  canalDesk = sb.channel('desk-'+lobiId)
+    .on('postgres_changes', { event:'*', schema:'public', table:'objetivos', filter:'lobi_id=eq.'+lobiId },
+      ()=>{ cargarObjetivos(lobiId); })
+    .subscribe();
+}
+
+function desuscribirseDesk(){
+  if(canalDesk){ sb.removeChannel(canalDesk); canalDesk=null; }
+}
+
 /* ====== LISTA DE LOBIS EN VIVO (Problema 1) ====== */
 let canalLobis=null;
 
@@ -1757,6 +1817,9 @@ function enterLobi(lobi,created){
     // Miembros en la nube: me uno, cargo la lista real y me sintonizo
     unirmeAlLobi(c.id).then(()=>{ cargarMiembros(c.id); });
     suscribirseMiembros(c.id);
+    // Lobi Desk: cargo los objetivos y me sintonizo (Problema 6)
+    cargarObjetivos(c.id);
+    suscribirseDesk(c.id);
   }
   renderActiveLobiSidebar();updateCenterNav();
   /* recordatorio: si tengo juegos sin completar, marco el menú Perfil y aviso */
@@ -1778,6 +1841,7 @@ function finalizeLeave(){
   const lobiId = state.currentLobi ? state.currentLobi.id : null;
   desuscribirseChat();
   desuscribirseMiembros();
+  desuscribirseDesk();
   if(lobiId && lobiId.startsWith('real-')) salirDelLobi(lobiId);
   state.currentLobi=null;state.pendingLobi=null;renderActiveLobiSidebar();updateCenterNav();navTo('home');
 }
@@ -1867,7 +1931,15 @@ function roomView(){
 function setRoomTab(t){roomTab=t;navTo('room');}
 
 /* ====== OBJETIVOS (crear, arrastrar para editar, máx 7) ====== */
-function getObjectives(){const id=state.currentLobi.id;if(!state.objectives[id])state.objectives[id]=[{id:'o1',name:'Base inicial',type:'pct',min:0,max:100,pct:80,owner:'Daniel_Mc'},{id:'o2',name:'Mina principal',type:'pct',min:0,max:100,pct:58,owner:state.displayName}];return state.objectives[id];}
+function getObjectives(){
+  const id=state.currentLobi.id;
+  if(!state.objectives[id]){
+    // Los Lobis reales empiezan vacíos (sus objetivos vienen de la nube)
+    if(id.startsWith('real-')) state.objectives[id]=[];
+    else state.objectives[id]=[{id:'o1',name:'Base inicial',type:'pct',min:0,max:100,pct:80,owner:'Daniel_Mc'},{id:'o2',name:'Mina principal',type:'pct',min:0,max:100,pct:58,owner:state.displayName}];
+  }
+  return state.objectives[id];
+}
 function renderObjectives(){
   const objs=getObjectives();
   if(!objs.length)return `<div class="side-empty">Aún no hay objetivos. Toca el + para crear el primero (máx. 7).</div>`;
@@ -1903,8 +1975,24 @@ function objDragMove(e){
     if(top)top.textContent=o.type==='pct'?`${pct}%`:`${Math.round(o.min+(o.max-o.min)*pct/100)}/${o.max}`;
   }
 }
-function objDragEnd(){window.removeEventListener('pointermove',objDragMove);window.removeEventListener('pointerup',objDragEnd);objDrag=null;}
-function deleteObjective(oid){const objs=getObjectives();const i=objs.findIndex(o=>o.id===oid);if(i>=0)objs.splice(i,1);refreshObjectives();}
+function objDragEnd(){
+  window.removeEventListener('pointermove',objDragMove);
+  window.removeEventListener('pointerup',objDragEnd);
+  // Al soltar, guardamos el progreso en la nube (una sola vez, no en cada movimiento)
+  if(objDrag){
+    const o=getObjectives().find(x=>x.id===objDrag.oid);
+    if(o && o.dbId) actualizarProgresoObjetivo(o.dbId, o.pct);
+  }
+  objDrag=null;
+}
+function deleteObjective(oid){
+  const objs=getObjectives();
+  const o=objs.find(x=>x.id===oid);
+  if(o && o.dbId){ borrarObjetivoNube(o.dbId); return; }  // el canal en vivo lo quitará para todos
+  const i=objs.findIndex(x=>x.id===oid);
+  if(i>=0)objs.splice(i,1);
+  refreshObjectives();
+}
 function openObjectiveModal(){
   if(getObjectives().length>=7){toast('Máximo 7 objetivos');return;}
   document.getElementById('obj-name').value='';
@@ -1922,11 +2010,19 @@ function createObjective(){
   const name=document.getElementById('obj-name').value.trim();
   if(!name){toast('Ponle un nombre al objetivo');return;}
   const objs=getObjectives();
+  const lobiId=state.currentLobi.id;
   let max=100;
   if(objModalType==='range'){max=parseInt(document.getElementById('obj-max').value)||100;if(max<1){toast('El máximo debe ser mayor a 0');return;}}
-  objs.push({id:'o'+Date.now(),name,type:objModalType,min:0,max,pct:0,owner:state.displayName});
-  closeModal('modal-objective');refreshObjectives();
-  toast('✅ Objetivo creado. Arrastra la barra para avanzarlo.');
+  if(lobiId.startsWith('real-')){
+    // Lobi real: se guarda en la nube y el canal en vivo lo mostrará a todos
+    guardarObjetivo(lobiId, name);
+    closeModal('modal-objective');
+    toast('✅ Objetivo creado');
+  } else {
+    objs.push({id:'o'+Date.now(),name,type:objModalType,min:0,max,pct:0,owner:state.displayName});
+    closeModal('modal-objective');refreshObjectives();
+    toast('✅ Objetivo creado. Arrastra la barra para avanzarlo.');
+  }
 }
 
 function renderChat(){
