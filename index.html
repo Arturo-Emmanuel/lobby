@@ -682,7 +682,7 @@ input,select,textarea{font-family:inherit}
 
 <div class="modal-overlay" id="modal-extend"><div class="modal">
   <h3>Tu Lobi se cerrará pronto ⏳</h3><p>Quedan pocos minutos. ¿Quieren extenderlo una hora más para seguir jugando? Y no olvides agregar a quien te cayó bien antes de cerrar.</p>
-  <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-extend')">Cerrar Lobi</button><button class="btn btn-primary" style="flex:1" onclick="closeModal('modal-extend')">Extender 1 hora</button></div>
+  <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-extend')">Dejar que cierre</button><button class="btn btn-primary" style="flex:1" onclick="extenderLobi()">Extender 1 hora</button></div>
 </div></div>
 
 <div class="modal-overlay" id="modal-leave"><div class="modal">
@@ -937,6 +937,7 @@ async function cargarLobisReales(){
         cover: cat.cover,
         coverImg: cat.cover.startsWith('data:') || cat.cover.startsWith('http'),
         members: [],
+        terminaEn: l.termina_en ? new Date(l.termina_en).getTime() : null,
         real: true
       };
     });
@@ -1148,6 +1149,84 @@ async function votarEnNube(encuestaId, opcion, tipo){
   }catch(e){ toast('⚠️ No se registró el voto'); }
 }
 
+/* ====== TEMPORIZADOR DEL LOBI (Problema 7) ====== */
+let relojLobi=null;
+let avisoMostrado=false;
+
+/* Formatea segundos como H:MM:SS */
+function formatoTiempo(segs){
+  if(segs<0) segs=0;
+  const h=Math.floor(segs/3600);
+  const m=Math.floor((segs%3600)/60);
+  const s=segs%60;
+  return h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+
+/* Extiende el Lobi 1 hora más (para todos). */
+async function extenderLobi(){
+  closeModal('modal-extend');
+  const l=state.currentLobi;
+  if(!l || !l.id.startsWith('real-')) return;
+  try{
+    const dbId = l.id.replace('real-','');
+    const nuevoFin = new Date((l.terminaEn||Date.now()) + 60*60*1000).toISOString();
+    const { error } = await sb.from('lobis').update({ termina_en: nuevoFin }).eq('id', dbId);
+    if(error) throw error;
+    l.terminaEn = new Date(nuevoFin).getTime();
+    avisoMostrado=false; // por si vuelve a acercarse el final
+    toast('⏰ ¡Lobi extendido 1 hora más!');
+  }catch(e){ toast('⚠️ No se pudo extender'); }
+}
+
+/* Cierra el Lobi: lo borra de la base y saca a todos. */
+async function cerrarLobiPorTiempo(){
+  const l=state.currentLobi;
+  if(!l) return;
+  const dbId = l.id.replace('real-','');
+  try{
+    await sb.from('lobis').delete().eq('id', dbId);
+  }catch(e){ /* si falla, igual salimos */ }
+  toast('⏰ El Lobi ha terminado');
+  finalizeLeave();
+}
+
+/* El reloj: cuenta el tiempo, avisa a los 5 min y cierra al llegar a 0. */
+function arrancarRelojLobi(){
+  if(relojLobi) return;
+  avisoMostrado=false;
+  relojLobi = setInterval(()=>{
+    const l=state.currentLobi;
+    if(!l || !l.terminaEn) return;
+    const quedan = Math.round((l.terminaEn - Date.now())/1000);
+
+    // Actualizar el reloj en pantalla
+    const el=document.querySelector('.room-timer');
+    if(el){
+      const svg=el.querySelector('svg');
+      el.innerHTML = (svg?svg.outerHTML:'') + ' ' + formatoTiempo(quedan);
+      // Ponerlo rojo si quedan menos de 5 min
+      el.style.color = quedan<=300 ? 'var(--color-danger, #ef4444)' : '';
+    }
+
+    // Aviso a los 5 minutos
+    if(quedan<=300 && quedan>0 && !avisoMostrado){
+      avisoMostrado=true;
+      openModal('modal-extend');
+    }
+
+    // Se acabó el tiempo
+    if(quedan<=0){
+      pararRelojLobi();
+      cerrarLobiPorTiempo();
+    }
+  }, 1000);
+}
+
+function pararRelojLobi(){
+  if(relojLobi){ clearInterval(relojLobi); relojLobi=null; }
+  avisoMostrado=false;
+}
+
 /* ====== CIERRE AUTOMÁTICO DE ENCUESTAS ====== */
 let relojEncuestas=null;
 
@@ -1331,6 +1410,16 @@ function suscribirseListaLobis(){
       async ()=>{
         await cargarLobisReales();
         await cargarConteoMiembros();
+        // Si estoy en un Lobi y lo extendieron, actualizo mi reloj
+        if(state.currentLobi && state.currentLobi.real){
+          const actualizado = (realLobis||[]).find(x=>x.id===state.currentLobi.id);
+          if(actualizado && actualizado.terminaEn){
+            if(actualizado.terminaEn !== state.currentLobi.terminaEn){
+              state.currentLobi.terminaEn = actualizado.terminaEn;
+              avisoMostrado = false;
+            }
+          }
+        }
         if(state.view==='home'||state.view==='lobis') navTo(state.view);
       })
     .on('postgres_changes', { event:'*', schema:'public', table:'miembros' },
@@ -1859,12 +1948,14 @@ async function publishLobi(){
   try {
     const { data:{ user } } = await sb.auth.getUser();
     if(user){
+      const terminaEn = new Date(Date.now() + 90*60*1000).toISOString(); // 1h 30min
       const { data, error } = await sb.from('lobis').insert({
         nombre: nm,
         juego: createGame,
         modo: mode.toUpperCase(),
         estilo: style,
         objetivo: obj,
+        termina_en: terminaEn,
         id_creador: user.id
       }).select().single();
       if(error) throw error;
@@ -1877,7 +1968,8 @@ async function publishLobi(){
 
   enterLobi({id:lobiId,game:createGame,name:nm,mode:mode.toUpperCase(),cats:[mode,style,obj],compat:91,
     cover:cat.cover,coverImg:cat.cover.startsWith('data:')||cat.cover.startsWith('http'),
-    members:[]},true);
+    members:[], terminaEn: lobiId.startsWith('real-') ? Date.now()+90*60*1000 : null,
+    real: lobiId.startsWith('real-')},true);
   createStep='game';createGame=null;
 }
 
@@ -1962,6 +2054,7 @@ function enterLobi(lobi,created){
     cargarEncuestas(c.id);
     suscribirseDesk(c.id);
     arrancarRelojEncuestas();
+    arrancarRelojLobi();
   }
   renderActiveLobiSidebar();updateCenterNav();
   /* recordatorio: si tengo juegos sin completar, marco el menú Perfil y aviso */
@@ -1985,6 +2078,7 @@ function finalizeLeave(){
   desuscribirseMiembros();
   desuscribirseDesk();
   pararRelojEncuestas();
+  pararRelojLobi();
   if(lobiId && lobiId.startsWith('real-')) salirDelLobi(lobiId);
   state.currentLobi=null;state.pendingLobi=null;renderActiveLobiSidebar();updateCenterNav();navTo('home');
 }
