@@ -696,6 +696,11 @@ input,select,textarea{font-family:inherit}
   <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-extend')">Dejar que cierre</button><button class="btn btn-primary" style="flex:1" onclick="extenderLobi()">Extender 1 hora</button></div>
 </div></div>
 
+<div class="modal-overlay" id="modal-del-msg"><div class="modal">
+  <h3>¿Borrar este mensaje? 🗑️</h3><p>Se borrará para todos y <b>no se puede recuperar</b>. ¿Seguro?</p>
+  <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-del-msg')">Mejor no</button><button class="btn btn-danger" style="flex:1" onclick="confirmarBorrarMensaje()">Sí, borrar</button></div>
+</div></div>
+
 <div class="modal-overlay" id="modal-leave"><div class="modal">
   <h3>¿Salir del Lobi?</h3><p>Si sales, dejarás <b id="leave-lobi-name">este Lobi</b>. Podrás unirte a otro después. ¿Seguro?</p>
   <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-leave')">No, quedarme</button><button class="btn btn-danger" style="flex:1" onclick="confirmLeave()">Sí, salir</button></div>
@@ -1426,7 +1431,7 @@ async function cargarPrivados(conQuien){
       .or(`and(de_nombre.eq.${yo},para_nombre.eq.${conQuien}),and(de_nombre.eq.${conQuien},para_nombre.eq.${yo})`)
       .order('created_at',{ascending:true});
     if(error) throw error;
-    dms[conQuien] = (data||[]).map(m=>({ from: m.de_nombre===yo ? 'me' : 'them', text: m.texto }));
+    dms[conQuien] = (data||[]).map(m=>({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado }));
     if(state.view==='messages' && openDM===conQuien){ navTo('messages'); setTimeout(scrollDM,30); }
   }catch(e){ /* si falla, la conversación queda como está */ }
 }
@@ -1434,7 +1439,11 @@ async function cargarPrivados(conQuien){
 /* Me sintonizo al canal de mensajes privados: los que me llegan aparecen solos. */
 function suscribirsePrivados(){
   if(canalPrivados) return;
+
+  const refrescar = ()=>{ if(state.view==='messages'){ navTo('messages'); if(openDM) setTimeout(scrollDM,30); } };
+
   canalPrivados = sb.channel('privados-'+state.displayName)
+    /* Privado NUEVO */
     .on('postgres_changes', { event:'INSERT', schema:'public', table:'privados' },
       (payload)=>{
         const m = payload.new;
@@ -1443,15 +1452,41 @@ function suscribirsePrivados(){
         if(m.para_nombre!==yo && m.de_nombre!==yo) return;
         const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
         if(!dms[otro]) dms[otro]=[];
-        dms[otro].push({ from: m.de_nombre===yo ? 'me' : 'them', text: m.texto });
+        dms[otro].push({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado });
         // Si tengo esa conversación abierta, la refresco; si no, refresco la lista
-        if(state.view==='messages'){ navTo('messages'); if(openDM===otro) setTimeout(scrollDM,30); }
+        refrescar();
+      })
+    /* Privado EDITADO (Problema 9) */
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'privados' },
+      (payload)=>{
+        const m = payload.new;
+        const yo = state.displayName;
+        if(m.para_nombre!==yo && m.de_nombre!==yo) return;
+        const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
+        const hilo = dms[otro] || [];
+        const i = hilo.findIndex(x => x.id === m.id);
+        if(i >= 0) hilo[i] = { id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado };
+        refrescar();
+      })
+    /* Privado BORRADO (Problema 9) */
+    .on('postgres_changes', { event:'DELETE', schema:'public', table:'privados' },
+      (payload)=>{
+        const viejo = payload.old || {};
+        if(viejo.id == null) return;
+        /* DELETE solo trae el id, así que busco en todas mis conversaciones */
+        Object.keys(dms).forEach(otro=>{
+          const hilo = dms[otro] || [];
+          const i = hilo.findIndex(x => x.id === viejo.id);
+          if(i >= 0) hilo.splice(i, 1);
+        });
+        refrescar();
       })
     .subscribe();
 }
 
 function desuscribirsePrivados(){
   if(canalPrivados){ sb.removeChannel(canalPrivados); canalPrivados=null; }
+  editandoPrivId = null;
 }
 
 /* Trae la lista de personas con las que tengo conversación (para la lista de chats). */
@@ -1799,10 +1834,36 @@ function messagesView(){
       <button class="send-btn" onclick="sendDM()"><svg fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
     </div><input type="file" id="dm-image-trigger" accept="image/*" class="hidden"></div>`;
 }
+let editandoPrivId = null;   // qué privado estoy editando (Problema 9)
+
 function renderDMmsg(m,p){
   if(m.invite)return inviteCardHtml(m.invite,m.from==='me');
-  const body=m.img?`<div class="bubble img-bubble"><img class="chat-img" src="${m.img}" onclick="viewImage('${m.img}')"></div>`:`<div class="bubble">${escapeHtml(m.text)}</div>`;
-  return `<div class="msg ${m.from==='me'?'me':''}">${m.from==='me'?'':`<img class="av" src="${av(p.seed,p.bg)}">`}<div class="bubble-wrap">${body}</div></div>`;
+
+  /* Estoy editando este privado: cajita en vez de burbuja */
+  if(editandoPrivId != null && m.id === editandoPrivId){
+    return `<div class="msg me"><div class="bubble-wrap" style="flex:1">
+      <div class="edit-box">
+        <input id="edit-field-priv" value="${escapeHtml(m.text).replace(/"/g,'&quot;')}" onkeydown="if(event.key==='Enter')guardarEdicionPriv();if(event.key==='Escape')cancelarEdicionPriv()">
+        <button onclick="guardarEdicionPriv()">Guardar</button>
+        <button class="cancel" onclick="cancelarEdicionPriv()">✕</button>
+      </div>
+    </div></div>`;
+  }
+
+  const tag = m.editado ? '<span class="edited-tag">(editado)</span>' : '';
+  const body = m.img
+    ? `<div class="bubble img-bubble"><img class="chat-img" src="${m.img}" onclick="viewImage('${m.img}')"></div>`
+    : `<div class="bubble">${escapeHtml(m.text)}${tag}</div>`;
+
+  /* Botones solo en MIS privados reales (los que tienen id) */
+  const acciones = (m.from==='me' && m.id != null && !m.img)
+    ? `<div class="msg-acts">
+         <button class="msg-act" title="Editar" onclick="empezarEdicionPriv(${m.id})">✏️</button>
+         <button class="msg-act del" title="Borrar" onclick="pedirBorrarPrivado(${m.id})">🗑️</button>
+       </div>`
+    : '';
+
+  return `<div class="msg ${m.from==='me'?'me':''}">${m.from==='me'?'':`<img class="av" src="${av(p.seed,p.bg)}">`}<div class="bubble-wrap">${body}</div>${acciones}</div>`;
 }
 function openConversation(name){
   closePopover();
@@ -2412,10 +2473,26 @@ async function guardarEdicion(){
   }
 }
 
-/* Pregunto antes de borrar. Borrar es para siempre. */
+/* Pregunto antes de borrar, con el modal de Lobby (no el feo del navegador). */
+let porBorrar = null;   // { id, donde: 'lobi' | 'privado' }
+
 function pedirBorrarMensaje(id){
-  if(!confirm('¿Borrar este mensaje? No se puede deshacer.')) return;
-  borrarMensaje(id);
+  porBorrar = { id: id, donde: 'lobi' };
+  openModal('modal-del-msg');
+}
+
+function pedirBorrarPrivado(id){
+  porBorrar = { id: id, donde: 'privado' };
+  openModal('modal-del-msg');
+}
+
+function confirmarBorrarMensaje(){
+  closeModal('modal-del-msg');
+  if(!porBorrar) return;
+  const { id, donde } = porBorrar;
+  porBorrar = null;
+  if(donde === 'privado') borrarPrivado(id);
+  else borrarMensaje(id);
 }
 
 async function borrarMensaje(id){
@@ -2423,6 +2500,51 @@ async function borrarMensaje(id){
     const { error } = await sb.from('mensajes').delete().eq('id', id);
     if(error) throw error;
     /* El canal en vivo lo saca de la pantalla de todos */
+  }catch(e){
+    toast('⚠️ No se pudo borrar: ' + e.message);
+  }
+}
+
+/* ====== EDITAR Y BORRAR EN MENSAJES PRIVADOS (Problema 9) ====== */
+
+function empezarEdicionPriv(id){
+  editandoPrivId = id;
+  navTo('messages');
+  setTimeout(()=>{
+    const f=document.getElementById('edit-field-priv');
+    if(f){ f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
+  }, 30);
+}
+
+function cancelarEdicionPriv(){
+  editandoPrivId = null;
+  navTo('messages');
+  setTimeout(scrollDM, 30);
+}
+
+async function guardarEdicionPriv(){
+  const f=document.getElementById('edit-field-priv');
+  if(!f) return;
+  const nuevo=f.value.trim();
+  const id=editandoPrivId;
+  if(!nuevo || id==null){ cancelarEdicionPriv(); return; }
+
+  editandoPrivId = null;
+  try{
+    const { error } = await sb.from('privados')
+      .update({ texto: nuevo, editado: true })
+      .eq('id', id);
+    if(error) throw error;
+  }catch(e){
+    toast('⚠️ No se pudo editar: ' + e.message);
+    navTo('messages');
+  }
+}
+
+async function borrarPrivado(id){
+  try{
+    const { error } = await sb.from('privados').delete().eq('id', id);
+    if(error) throw error;
   }catch(e){
     toast('⚠️ No se pudo borrar: ' + e.message);
   }
