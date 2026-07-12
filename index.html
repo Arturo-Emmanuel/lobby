@@ -1105,6 +1105,10 @@ async function cargarEncuestas(lobiId){
       if(!state.polls[pid].closed && state.polls[pid].endsAt <= Date.now()){
         state.polls[pid].closed = true;
       }
+      // Si está cerrada, calculamos su mensaje de resultado
+      if(state.polls[pid].closed){
+        state.polls[pid].resultMsg = mensajeGanador(state.polls[pid]);
+      }
     });
     refreshSidePolls();
   }catch(e){ /* si falla, no rompe */ }
@@ -1142,6 +1146,61 @@ async function votarEnNube(encuestaId, opcion, tipo){
       }
     }
   }catch(e){ toast('⚠️ No se registró el voto'); }
+}
+
+/* ====== CIERRE AUTOMÁTICO DE ENCUESTAS ====== */
+let relojEncuestas=null;
+
+/* Calcula el mensaje del ganador de una encuesta. */
+function mensajeGanador(p){
+  const total = p.votes.reduce((a,b)=>a+b,0);
+  if(total===0) return `📊 La encuesta "${p.q}" cerró sin votos`;
+  const max = Math.max(...p.votes);
+  const ganadoras = p.opts.filter((o,i)=>p.votes[i]===max);
+  if(ganadoras.length>1) return `📊 "${p.q}" → ¡Empate entre ${ganadoras.join(' y ')}!`;
+  return `📊 "${p.q}" → ¡Ganó "${ganadoras[0]}" con ${max} voto${max===1?'':'s'}!`;
+}
+
+/* Cierra en la nube una encuesta que ya venció. */
+async function cerrarEncuestaNube(dbId){
+  try{
+    await sb.from('encuestas').update({ cerrada: true }).eq('id', dbId);
+  }catch(e){ /* si falla, otro la cerrará */ }
+}
+
+/* Revisa cada segundo si alguna encuesta real venció, y la cierra + anuncia. */
+function arrancarRelojEncuestas(){
+  if(relojEncuestas) return;
+  relojEncuestas = setInterval(()=>{
+    if(!state.currentLobi) return;
+    const lobiId = state.currentLobi.id;
+    if(!lobiId.startsWith('real-')) return;
+    let cambio = false;
+    lobiPolls(lobiId).forEach(p=>{
+      if(!p.dbId || p.closed) return;
+      const quedan = Math.round((p.endsAt - Date.now())/1000);
+      // Actualizar el contador visible
+      const el = document.getElementById('poll-left-'+p.id);
+      if(el) el.textContent = Math.max(0,quedan)+'s restantes';
+      // ¿Ya venció?
+      if(quedan <= 0){
+        p.closed = true;
+        p.resultMsg = mensajeGanador(p);
+        cerrarEncuestaNube(p.dbId);
+        // Anunciar el resultado en el chat
+        if(!state.chatLog[lobiId]) state.chatLog[lobiId]=[];
+        state.chatLog[lobiId].push({ type:'join', text: p.resultMsg });
+        const box = document.getElementById('chat-scroll');
+        if(box){ box.innerHTML=renderChat(); scrollChat(); }
+        cambio = true;
+      }
+    });
+    if(cambio) refreshSidePolls();
+  }, 1000);
+}
+
+function pararRelojEncuestas(){
+  if(relojEncuestas){ clearInterval(relojEncuestas); relojEncuestas=null; }
 }
 
 /* ====== OBJETIVOS DEL LOBI EN LA NUBE (Problema 6) ====== */
@@ -1902,6 +1961,7 @@ function enterLobi(lobi,created){
     cargarObjetivos(c.id);
     cargarEncuestas(c.id);
     suscribirseDesk(c.id);
+    arrancarRelojEncuestas();
   }
   renderActiveLobiSidebar();updateCenterNav();
   /* recordatorio: si tengo juegos sin completar, marco el menú Perfil y aviso */
@@ -1924,6 +1984,7 @@ function finalizeLeave(){
   desuscribirseChat();
   desuscribirseMiembros();
   desuscribirseDesk();
+  pararRelojEncuestas();
   if(lobiId && lobiId.startsWith('real-')) salirDelLobi(lobiId);
   state.currentLobi=null;state.pendingLobi=null;renderActiveLobiSidebar();updateCenterNav();navTo('home');
 }
