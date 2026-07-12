@@ -1001,20 +1001,17 @@ let conteoMiembros={};  // cuántos miembros tiene cada Lobi (para las tarjetas)
 async function unirmeAlLobi(lobiId){
   try{
     const { data:{ user } } = await sb.auth.getUser();
-    if(!user){ alert('PISTA A: no hay usuario conectado'); return; }
+    if(!user) return;
     // Si ya estoy, no me agrego de nuevo
-    const { data:ya, error:errYa } = await sb.from('miembros').select('id').eq('lobi_id',lobiId).eq('id_usuario',user.id);
-    if(errYa){ alert('PISTA B: error al revisar si ya estoy = '+errYa.message); }
-    if(ya && ya.length>0){ alert('PISTA C: ya estaba en el lobi, no me agrego'); return; }
-    const { error:errIns } = await sb.from('miembros').insert({
+    const { data:ya } = await sb.from('miembros').select('id').eq('lobi_id',lobiId).eq('id_usuario',user.id);
+    if(ya && ya.length>0) return;
+    await sb.from('miembros').insert({
       lobi_id: lobiId,
       id_usuario: user.id,
       nombre: state.displayName,
       estilo: state.me.style || 'Chill'
     });
-    if(errIns){ alert('PISTA D: NO se pudo insertar = '+errIns.message+'\n(lobi: '+lobiId+', nombre: '+state.displayName+')'); }
-    else { alert('PISTA E: insertado OK como '+state.displayName+' en '+lobiId); }
-  }catch(e){ alert('PISTA F: excepcion = '+e.message); }
+  }catch(e){ /* si falla, seguimos igual */ }
 }
 
 /* Me saco de la lista de miembros al salir. */
@@ -1072,6 +1069,59 @@ async function cargarConteoMiembros(){
 
 /* ====== LISTA DE LOBIS EN VIVO (Problema 1) ====== */
 let canalLobis=null;
+
+/* ====== MENSAJES PRIVADOS EN TIEMPO REAL (Problema 3) ====== */
+let canalPrivados=null;
+
+/* Carga el historial de la conversación privada con esta persona. */
+async function cargarPrivados(conQuien){
+  try{
+    const yo = state.displayName;
+    const { data, error } = await sb.from('privados').select('*')
+      .or(`and(de_nombre.eq.${yo},para_nombre.eq.${conQuien}),and(de_nombre.eq.${conQuien},para_nombre.eq.${yo})`)
+      .order('created_at',{ascending:true});
+    if(error) throw error;
+    dms[conQuien] = (data||[]).map(m=>({ from: m.de_nombre===yo ? 'me' : 'them', text: m.texto }));
+    if(state.view==='messages' && openDM===conQuien){ navTo('messages'); setTimeout(scrollDM,30); }
+  }catch(e){ /* si falla, la conversación queda como está */ }
+}
+
+/* Me sintonizo al canal de mensajes privados: los que me llegan aparecen solos. */
+function suscribirsePrivados(){
+  if(canalPrivados) return;
+  canalPrivados = sb.channel('privados-'+state.displayName)
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'privados' },
+      (payload)=>{
+        const m = payload.new;
+        const yo = state.displayName;
+        // Solo me interesan los mensajes de MI conversación (los que me llegan o que yo envié)
+        if(m.para_nombre!==yo && m.de_nombre!==yo) return;
+        const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
+        if(!dms[otro]) dms[otro]=[];
+        dms[otro].push({ from: m.de_nombre===yo ? 'me' : 'them', text: m.texto });
+        // Si tengo esa conversación abierta, la refresco; si no, refresco la lista
+        if(state.view==='messages'){ navTo('messages'); if(openDM===otro) setTimeout(scrollDM,30); }
+      })
+    .subscribe();
+}
+
+function desuscribirsePrivados(){
+  if(canalPrivados){ sb.removeChannel(canalPrivados); canalPrivados=null; }
+}
+
+/* Trae la lista de personas con las que tengo conversación (para la lista de chats). */
+async function cargarListaPrivados(){
+  try{
+    const yo = state.displayName;
+    const { data, error } = await sb.from('privados').select('de_nombre,para_nombre')
+      .or(`de_nombre.eq.${yo},para_nombre.eq.${yo}`);
+    if(error) throw error;
+    (data||[]).forEach(m=>{
+      const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
+      if(otro && !dms[otro]) dms[otro]=[];
+    });
+  }catch(e){ /* si falla, se queda con lo que hay */ }
+}
 
 /* Me sintonizo a la tabla de Lobis: si alguien crea o borra uno, me entero al instante. */
 function suscribirseListaLobis(){
@@ -1198,6 +1248,9 @@ async function goApp(view){
   });
   /* Nos sintonizamos a la lista de Lobis: los nuevos aparecen solos (Problema 1) */
   suscribirseListaLobis();
+  /* Nos sintonizamos a los mensajes privados: llegan solos (Problema 3) */
+  cargarListaPrivados().then(()=>{ if(state.view==='messages') navTo('messages'); });
+  suscribirsePrivados();
 }
 function syncUserUI(){document.getElementById('sb-avatar').src=state.avatarUrl;document.getElementById('sb-username').textContent=state.displayName;}
 
@@ -1396,14 +1449,39 @@ function renderDMmsg(m,p){
   const body=m.img?`<div class="bubble img-bubble"><img class="chat-img" src="${m.img}" onclick="viewImage('${m.img}')"></div>`:`<div class="bubble">${escapeHtml(m.text)}</div>`;
   return `<div class="msg ${m.from==='me'?'me':''}">${m.from==='me'?'':`<img class="av" src="${av(p.seed,p.bg)}">`}<div class="bubble-wrap">${body}</div></div>`;
 }
-function openConversation(name){closePopover();if(!dms[name])dms[name]=[];openDM=name;navTo('messages');}
-function sendDM(){
+function openConversation(name){
+  closePopover();
+  if(!dms[name])dms[name]=[];
+  openDM=name;
+  navTo('messages');
+  // Si es un usuario real, traemos el historial de la nube
+  const destino=findPlayer(name);
+  if(destino && destino.real) cargarPrivados(name);
+}
+async function sendDM(){
   const f=document.getElementById('dm-field');if(!f||!f.value.trim())return;
-  dms[openDM].push({from:'me',text:f.value.trim()});f.value='';navTo('messages');setTimeout(scrollDM,30);
-  // Solo los bots de ejemplo responden automático. Los usuarios reales NO (sería falso).
-  const destino=findPlayer(openDM);
-  if(destino && !destino.real){
-    setTimeout(()=>{const r=['jaja sí 😄','dale, cuando quieras','vale 👍','de una!','me parece 🔥'];dms[openDM].push({from:'them',text:r[Math.floor(Math.random()*r.length)]});if(state.view==='messages'&&openDM){navTo('messages');setTimeout(scrollDM,30);}},1100);
+  const texto=f.value.trim();
+  const destinatario=openDM;
+  f.value='';
+  const destino=findPlayer(destinatario);
+
+  if(destino && destino.real){
+    // Usuario REAL: guardamos en la nube. El canal en vivo nos lo devolverá.
+    try{
+      const { data:{ user } } = await sb.auth.getUser();
+      const { error } = await sb.from('privados').insert({
+        de_usuario: user.id,
+        de_nombre: state.displayName,
+        para_nombre: destinatario,
+        texto: texto
+      });
+      if(error) throw error;
+    }catch(e){ toast('⚠️ No se envió: '+e.message); }
+  } else {
+    // Bot de ejemplo: comportamiento local de siempre
+    dms[destinatario].push({from:'me',text:texto});
+    navTo('messages');setTimeout(scrollDM,30);
+    setTimeout(()=>{const r=['jaja sí 😄','dale, cuando quieras','vale 👍','de una!','me parece 🔥'];dms[destinatario].push({from:'them',text:r[Math.floor(Math.random()*r.length)]});if(state.view==='messages'&&openDM){navTo('messages');setTimeout(scrollDM,30);}},1100);
   }
 }
 
