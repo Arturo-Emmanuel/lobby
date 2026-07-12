@@ -1003,6 +1003,14 @@ async function unirmeAlLobi(lobiId){
   try{
     const { data:{ user } } = await sb.auth.getUser();
     if(!user) return;
+
+    /* Entró alguien: el Lobi revivió, le quito la marca de vacío.
+       Va ANTES del return de abajo, para que también valga si vuelvo a entrar. (Problema 5) */
+    const idNumerico = Number(lobiId.replace('real-',''));
+    await sb.from('lobis')
+      .update({ vacio_desde: null })
+      .eq('id', idNumerico);
+
     // Si ya estoy, no me agrego de nuevo
     const { data:ya } = await sb.from('miembros').select('id').eq('lobi_id',lobiId).eq('id_usuario',user.id);
     if(ya && ya.length>0) return;
@@ -1021,6 +1029,19 @@ async function salirDelLobi(lobiId){
     const { data:{ user } } = await sb.auth.getUser();
     if(!user) return;
     await sb.from('miembros').delete().eq('lobi_id',lobiId).eq('id_usuario',user.id);
+
+    /* ¿Quedó alguien adentro? Si no, marco el Lobi como vacío.
+       El robot de Supabase lo borrará solo a los 3 minutos. (Problema 5) */
+    const { count } = await sb.from('miembros')
+      .select('id', { count:'exact', head:true })
+      .eq('lobi_id', lobiId);
+
+    if(count === 0){
+      const idNumerico = Number(lobiId.replace('real-',''));
+      await sb.from('lobis')
+        .update({ vacio_desde: new Date().toISOString() })
+        .eq('id', idNumerico);
+    }
   }catch(e){ /* si falla, seguimos igual */ }
 }
 
