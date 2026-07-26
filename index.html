@@ -30,8 +30,8 @@ html[data-theme="light"]{
   --who-color:#8B3DD6;--cat-color:#8B3DD6;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%}
-body{font-family:'Poppins',system-ui,sans-serif;background:var(--color-bg);color:var(--color-text);-webkit-font-smoothing:antialiased;overflow:hidden;transition:background .3s,color .3s}
+html,body{height:100%;width:100%;max-width:100%;overflow-x:hidden}
+body{font-family:'Poppins',system-ui,sans-serif;background:var(--color-bg);color:var(--color-text);-webkit-font-smoothing:antialiased;overflow-y:hidden;overflow-x:hidden;transition:background .3s,color .3s}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input,select,textarea{font-family:inherit}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--color-border);border-radius:8px}
@@ -86,7 +86,7 @@ input,select,textarea{font-family:inherit}
 .chip:hover{border-color:var(--color-primary)}
 .chip.sel{background:rgba(200,77,255,.16);border-color:var(--color-primary);color:var(--color-text)}
 
-.app{position:relative;z-index:1;display:none;height:100vh;height:100dvh}
+.app{position:relative;z-index:1;display:none;height:100vh;height:100dvh;width:100%;max-width:100vw;overflow:hidden}
 .app.active{display:flex}
 .sidebar{width:240px;flex-shrink:0;background:var(--color-bg-deep);border-right:1px solid var(--color-border);display:flex;flex-direction:column;padding:18px 14px;overflow-y:auto}
 .sb-brand{display:flex;align-items:center;gap:10px;padding:8px 10px 18px;cursor:pointer}
@@ -124,11 +124,11 @@ input,select,textarea{font-family:inherit}
 .icon-btn svg{width:19px;height:19px}
 .icon-btn .badge{position:absolute;top:-5px;right:-5px;background:var(--color-danger);color:#fff;font-size:10px;font-weight:700;min-width:17px;height:17px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid var(--color-bg-deep)}
 
-.content{flex:1;overflow-y:auto;padding:26px}
+.content{flex:1;overflow-y:auto;overflow-x:hidden;padding:26px;min-width:0}
 .content.in-room{overflow:hidden;padding:0}
 .content.in-room .content-inner{max-width:none;height:100%}
 .content-inner.room-host{height:100%}
-.content-inner{max-width:1280px;margin:0 auto}
+.content-inner{max-width:1280px;margin:0 auto;width:100%;box-sizing:border-box}
 
 .hero-line{font-size:26px;font-weight:700;margin-bottom:3px}
 .hero-sub{color:var(--color-muted);font-size:14px;margin-bottom:26px}
@@ -426,12 +426,13 @@ input,select,textarea{font-family:inherit}
 
 @media(max-width:880px){
   .sidebar{display:none}
+  .main{width:100%;max-width:100vw;min-width:0}
   .topbar{padding:14px 16px}
   .content{padding:18px 16px}
   .room-body{grid-template-columns:1fr}
   .room-members,.room-side{display:none}
   .room-members.mshow,.room-side.mshow{display:flex}
-  .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:40;height:calc(64px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--color-bg-deep);border-top:1px solid var(--color-border);align-items:center;justify-content:space-around;padding-left:6px;padding-right:6px}
+  .mobile-nav{display:flex;position:relative;z-index:40;flex-shrink:0;min-height:64px;padding-bottom:env(safe-area-inset-bottom);background:var(--color-bg-deep);border-top:1px solid var(--color-border);align-items:center;justify-content:space-around;padding-left:6px;padding-right:6px}
   .mnav-spacer{display:none}
   .mnav-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--color-muted);font-size:10px;font-weight:500;flex:1;padding:6px 0;position:relative}
   .mnav-item svg{width:21px;height:21px}
@@ -603,10 +604,19 @@ input,select,textarea{font-family:inherit}
    Nada de :hover — en un celular no existe. */
 @media(max-width:880px){
 
+  /* CANDADO MAESTRO: en móvil, nada puede ser más ancho que la pantalla.
+     Esto corta el scroll horizontal y el estiramiento de raíz. */
+  html,body{width:100%;max-width:100%;overflow-x:hidden;position:relative}
+  .app,.main,.content,.content-inner,.topbar,.room,.room-body,.room-col,.notif-panel{max-width:100vw;box-sizing:border-box}
+
   /* ---- Barra de arriba: buscador full, sin apretujar ---- */
-  .topbar{padding:12px 14px;gap:10px}
-  .search{max-width:none;padding:11px 13px}
-  .search input{font-size:16px}
+  .topbar{padding:12px 14px;gap:8px;max-width:100vw;width:100%;overflow:hidden;box-sizing:border-box}
+  .topbar-spacer{display:none}
+  .search{max-width:none;min-width:0;flex:1 1 auto;padding:11px 13px}
+  .search input{font-size:16px;min-width:0;width:100%}
+  .topbar .theme-toggle,.topbar .icon-btn{flex-shrink:0}
+  .mobile-topbar-only{flex-shrink:0}
+  .mobile-topbar-only .brand-name{display:none}
 
   /* ---- Tarjetas: una por fila. Dos no entran y quedan feas. ---- */
   .player-grid{grid-template-columns:1fr;gap:10px}
@@ -667,13 +677,13 @@ input,select,textarea{font-family:inherit}
   .modal-actions{flex-direction:column-reverse;gap:8px}
   .modal-actions .btn{width:100%}
 
-  /* ---- Popover del Lobi: también desde abajo ---- */
-  .popover{width:auto;left:12px!important;right:12px!important;bottom:78px!important;top:auto!important;border-radius:18px}
+  /* ---- Popover del Lobi: centrado en pantalla ---- */
+  .popover{width:auto;left:12px!important;right:12px!important;bottom:auto!important;top:50%!important;transform:translateY(-50%);border-radius:18px;z-index:60}
   .pop-actions{flex-wrap:wrap}
   .pop-actions .btn{flex:1 1 45%;min-height:44px}
 
-  /* ---- Notificaciones: pantalla casi completa ---- */
-  .notif-panel{position:fixed;top:auto;bottom:70px;left:10px;right:10px;width:auto;max-width:none;max-height:62vh;border-radius:18px}
+  /* ---- Notificaciones: baja desde arriba, debajo de la barra ---- */
+  .notif-panel{position:fixed;top:64px;left:10px;right:10px;bottom:auto;width:auto;max-width:none;max-height:70vh;border-radius:18px;z-index:60}
 
   /* ══ SALA DEL LOBI EN MÓVIL ══
      Arriba: solo el nombre y el tiempo. Todo lo demás en el menú ⋯.
@@ -689,19 +699,18 @@ input,select,textarea{font-family:inherit}
   .room-mobile-tabs{padding:8px 12px;gap:6px}
   .room-mobile-tabs button{padding:10px 4px;font-size:12.5px;min-height:40px;border-radius:9px}
 
-  /* EL ARREGLO: el nav de abajo es position:fixed, o sea que flota ENCIMA.
-     Si .content llega hasta el fondo de la pantalla, el chat queda debajo
-     del nav, tapado. Solución: que .content TERMINE antes del nav. */
-  .app{height:100dvh;max-height:100dvh}
-  .main{padding-bottom:calc(64px + env(safe-area-inset-bottom));min-height:0}
+  /* EL ARREGLO DE VERDAD: en móvil, .app pasa a ser columna vertical
+     (main arriba, nav abajo). El nav deja de flotar (fixed) y pasa a ser
+     una fila real. Así ocupa su lugar y NADA le queda debajo. */
+  .app{flex-direction:column}
+  .main{flex:1;width:100%;max-width:100vw;min-width:0;min-height:0}
+  .mobile-nav{position:relative;bottom:auto;left:auto;right:auto;flex-shrink:0;height:auto;min-height:64px;padding-bottom:env(safe-area-inset-bottom)}
 
-  /* Chat: todo el espacio disponible, sin scroll raro */
+  /* La sala llena su espacio; el chat scrollea, la caja queda al fondo visible */
   .room{height:100%;min-height:0;padding-bottom:0}
   .room-body{flex:1;min-height:0}
   .room-col.room-chat{height:100%;min-height:0}
   .chat-scroll{flex:1;min-height:0;overflow-y:auto}
-
-  /* La caja de escribir: al fondo del chat, siempre visible */
   .chat-input{flex-shrink:0;position:relative;bottom:auto;background:var(--color-bg-deep);border-top:1px solid var(--color-border);padding:10px 12px}
 
   /* La sala no necesita el espaciador: .main ya reservó el lugar */
@@ -759,8 +768,7 @@ input,select,textarea{font-family:inherit}
 /* ══════════ PANTALLA ACOSTADA ══════════
    El teclado tapa medio celular. Bajamos alturas. */
 @media(max-height:480px) and (orientation:landscape){
-  .mobile-nav{height:52px;padding-bottom:0}
-  .main{padding-bottom:52px}
+  .mobile-nav{min-height:48px}
   .modal{max-height:94vh}
   .chat-scroll{padding:10px 14px;gap:10px}
 }
