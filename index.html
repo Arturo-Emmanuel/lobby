@@ -1492,15 +1492,54 @@ async function cargarMiembros(lobiId){
 /* Sintonizo el canal de miembros de este Lobi (entradas y salidas en vivo). */
 function suscribirseMiembros(lobiId){
   desuscribirseMiembros();
+  /* OJO: no ponemos filtro 'lobi_id=eq...' en el canal. En los eventos DELETE,
+     Postgres solo manda el id de la fila, NO el lobi_id — así que el filtro
+     los descartaría y el que sale seguiría apareciendo. Filtramos nosotros:
+     como cargarMiembros() relee todo de la base, siempre queda correcto. */
   canalMiembros = sb.channel('miembros-'+lobiId)
-    .on('postgres_changes', { event:'*', schema:'public', table:'miembros', filter:'lobi_id=eq.'+lobiId },
-      ()=>{ cargarMiembros(lobiId); })
+    .on('postgres_changes', { event:'*', schema:'public', table:'miembros' },
+      ()=>{ if(state.currentLobi) cargarMiembros(state.currentLobi.id); })
     .subscribe();
 }
 
 function desuscribirseMiembros(){
   if(canalMiembros){ sb.removeChannel(canalMiembros); canalMiembros=null; }
 }
+
+/* ====== LATIDO DEL LOBI (Bug B) ======
+   Mientras la pestaña está abierta en un Lobi real, cada 30 seg le avisa a
+   la base "sigo acá" (escribe visto_en). Si cierro la pestaña, deja de latir,
+   y el robot me saca a los ~2 min. NO depende de que toque nada: late aunque
+   esté quieto jugando Minecraft en otra ventana. */
+let relojLatido = null;
+
+async function latir(){
+  try{
+    if(!state.currentLobi || !miId) return;
+    const lobiId = state.currentLobi.id;
+    if(!lobiId.startsWith('real-')) return;
+    await sb.from('miembros')
+      .update({ visto_en: new Date().toISOString() })
+      .eq('lobi_id', lobiId)
+      .eq('id_usuario', miId);
+  }catch(e){ /* si un latido falla, el siguiente lo intenta */ }
+}
+
+function arrancarLatido(){
+  pararLatido();
+  latir();                                   // un latido inmediato al entrar
+  relojLatido = setInterval(latir, 30000);   // y después cada 30 seg
+}
+
+function pararLatido(){
+  if(relojLatido){ clearInterval(relojLatido); relojLatido=null; }
+}
+
+/* Cuando la pestaña vuelve al frente, late enseguida (por si el navegador
+   la congeló en segundo plano y se saltó algún latido). */
+document.addEventListener('visibilitychange', function(){
+  if(!document.hidden) latir();
+});
 
 /* Cuenta cuántos miembros tiene cada Lobi (para mostrar en las tarjetas). */
 async function cargarConteoMiembros(){
@@ -2702,6 +2741,7 @@ function enterLobi(lobi,created){
     // Miembros en la nube: me uno, cargo la lista real y me sintonizo
     unirmeAlLobi(c.id).then(()=>{ cargarMiembros(c.id); });
     suscribirseMiembros(c.id);
+    arrancarLatido();   // empiezo a avisar "sigo acá" cada 30 seg (Bug B)
     // Lobi Desk: cargo los objetivos y encuestas, y me sintonizo (Problema 6)
     cargarObjetivos(c.id);
     cargarEncuestas(c.id);
@@ -2732,6 +2772,7 @@ function finalizeLeave(){
   desuscribirseDesk();
   pararRelojEncuestas();
   pararRelojLobi();
+  pararLatido();   // dejo de latir: ya no estoy en el Lobi (Bug B)
   if(lobiId && lobiId.startsWith('real-')) salirDelLobi(lobiId);
   state.currentLobi=null;state.pendingLobi=null;renderActiveLobiSidebar();updateCenterNav();navTo('home');
 }
