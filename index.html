@@ -1318,6 +1318,7 @@ async function cargarLobisReales(){
       const cat = GAME_CATALOG[l.juego] || GAME_CATALOG.minecraft;
       return {
         id: 'real-'+l.id,
+        id_creador: l.id_creador,
         game: l.juego || 'minecraft',
         name: l.nombre || 'Lobi',
         mode: (l.modo || 'SURVIVAL'),
@@ -2037,7 +2038,7 @@ async function goApp(view){
     go('screen-login');
     return;
   }
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById('app').classList.add('active');syncUserUI();seedNotifs();navTo(view);
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById('app').classList.add('active');syncUserUI();navTo(view);
   /* Cargamos los usuarios reales en segundo plano y refrescamos la vista cuando lleguen */
   cargarUsuariosReales().then(()=>{
     if(state.view==='home'||state.view==='search') navTo(state.view);
@@ -2052,6 +2053,7 @@ async function goApp(view){
   suscribirsePrivados();
   cargarAmistades();          // Problema 11
   suscribirseAmistades();     // Problema 11
+  iniciarNotifs();            // Problema 12
 }
 function syncUserUI(){document.getElementById('sb-avatar').src=state.avatarUrl;document.getElementById('sb-username').textContent=state.displayName;}
 
@@ -2137,14 +2139,116 @@ document.addEventListener('keydown', function(e){
 let toastT;function toast(msg){const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600);}
 
 /* ============ NOTIFICACIONES ============ */
-function seedNotifs(){
-  if(state._seeded)return;state._seeded=true;
-  state.notifs=[
-    {id:'n1',type:'friend',from:'Pixel_Joe',seed:'Pix',bg:'7b3dff',text:'<b>Pixel_Joe</b> te envió una solicitud de amistad',time:'hace 2 min',unread:true,actionable:true},
-    {id:'n2',type:'message',from:'Daniel_Mc',seed:'Daniel',bg:'3da5ff',text:'<b>Daniel_Mc</b>: ¿Jugamos survival hoy? 🔥',time:'hace 5 min',unread:true},
-  ];
-  renderBadges();
+/* ====== NOTIFICACIONES REALES (Problema 12) ======
+   No hay tabla de notificaciones: las derivamos de lo que ya existe.
+   - Solicitudes de amistad → tabla amistades
+   - Mensajes privados e invitaciones → tabla privados
+   - Alguien se unió a mi Lobi → tabla miembros
+   "Leído" se recuerda con notif_leidas: todo lo más nuevo que mi
+   marca 'visto_hasta' cuenta como no leído. */
+
+let vistoHasta = 0;             // fecha (ms) hasta la que ya miré
+let canalNotifs = null;
+
+/* Traigo mi marca de "hasta cuándo ya vi". */
+async function cargarMarcaNotifs(){
+  try{
+    if(!miId) return;
+    const { data } = await sb.from('notif_leidas').select('visto_hasta').eq('id_usuario', miId).maybeSingle();
+    if(data && data.visto_hasta) vistoHasta = new Date(data.visto_hasta).getTime();
+    else {
+      // primera vez: creo la fila con la hora de ahora
+      await sb.from('notif_leidas').insert({ id_usuario: miId, visto_hasta: new Date().toISOString() });
+      vistoHasta = Date.now();
+    }
+  }catch(e){ vistoHasta = Date.now(); }
 }
+
+/* Junta todas las notificaciones reales, ordenadas de nueva a vieja. */
+async function construirNotifs(){
+  if(!miId) return [];
+  const yo = state.displayName;
+  const notis = [];
+
+  try{
+    // 1 y 4: privados que me mandaron (mensajes e invitaciones)
+    const { data: privs } = await sb.from('privados').select('*')
+      .eq('para_nombre', yo).order('created_at',{ascending:false}).limit(30);
+    (privs||[]).forEach(m=>{
+      const t = new Date(m.created_at).getTime();
+      if(m.invitacion){
+        notis.push({ tipo:'invite', from:m.de_nombre, seed:m.de_nombre, bg:'c84dff',
+          text:`<b>${escapeHtml(m.de_nombre)}</b> te invitó a un Lobi`, t });
+      } else {
+        notis.push({ tipo:'message', from:m.de_nombre, seed:m.de_nombre, bg:'3da5ff',
+          text:`<b>${escapeHtml(m.de_nombre)}</b> te envió un mensaje`, t });
+      }
+    });
+
+    // 2: solicitudes de amistad que me llegaron y siguen pendientes
+    const pend = solicitudes.filter(a => a.estado==='pendiente' && a.para_usuario===miId);
+    pend.forEach(a=>{
+      notis.push({ tipo:'friend', from:a.de_nombre, seed:a.de_nombre, bg:'7b3dff',
+        text:`<b>${escapeHtml(a.de_nombre)}</b> te envió una solicitud de amistad`,
+        t:new Date(a.created_at).getTime() });
+    });
+
+    // 3: alguien se unió a un Lobi que YO creé
+    const misLobis = (realLobis||[]).filter(l => l.id_creador === miId);
+    for(const l of misLobis){
+      const { data: miembros } = await sb.from('miembros').select('*').eq('lobi_id', l.id);
+      (miembros||[]).forEach(m=>{
+        if(m.id_usuario === miId) return; // no me notifico a mí mismo
+        notis.push({ tipo:'joined', from:m.nombre, seed:m.nombre, bg:'22c55e', lobiId:l.id,
+          text:`<b>${escapeHtml(m.nombre)}</b> se unió a tu Lobi <b>${escapeHtml(l.name)}</b>`,
+          t:new Date(m.created_at||Date.now()).getTime() });
+      });
+    }
+  }catch(e){ console.error('[notifs]', e); }
+
+  notis.sort((a,b)=> b.t - a.t);
+  return notis.slice(0, 30);
+}
+
+/* Refresca el panel y los badges con las notis reales. */
+async function refrescarNotifs(){
+  const notis = await construirNotifs();
+  state.notifs = notis.map(n=>({ ...n, unread: n.t > vistoHasta, time: haceCuanto(n.t) }));
+  renderBadges();
+  const p=document.getElementById('notif-panel');
+  if(p && p.classList.contains('active')) renderNotifPanel();
+}
+
+/* "hace 2 min", "hace 3 h", etc. */
+function haceCuanto(t){
+  const s = Math.round((Date.now()-t)/1000);
+  if(s<60) return 'recién';
+  if(s<3600) return `hace ${Math.floor(s/60)} min`;
+  if(s<86400) return `hace ${Math.floor(s/3600)} h`;
+  return `hace ${Math.floor(s/86400)} d`;
+}
+
+/* Me sintonizo a los cambios que generan notificaciones. */
+function suscribirseNotifs(){
+  if(canalNotifs) return;
+  canalNotifs = sb.channel('canal-notifs')
+    .on('postgres_changes', { event:'*', schema:'public', table:'privados' }, ()=>refrescarNotifs())
+    .on('postgres_changes', { event:'*', schema:'public', table:'amistades' }, ()=>refrescarNotifs())
+    .on('postgres_changes', { event:'*', schema:'public', table:'miembros' }, ()=>refrescarNotifs())
+    .subscribe();
+}
+
+function desuscribirseNotifs(){
+  if(canalNotifs){ sb.removeChannel(canalNotifs); canalNotifs=null; }
+}
+
+/* Arranca todo el sistema de notificaciones al iniciar sesión. */
+async function iniciarNotifs(){
+  await cargarMarcaNotifs();
+  await refrescarNotifs();
+  suscribirseNotifs();
+}
+
 function pushNotif(n){
   n.id='n'+Date.now()+Math.random();n.unread=true;
   state.notifs.unshift(n);renderBadges();renderNotifPanel();
@@ -2153,7 +2257,7 @@ function renderBadges(){
   const unread=state.notifs.filter(n=>n.unread).length;
   const nb=document.getElementById('notif-badge');
   if(unread>0){nb.textContent=unread;nb.classList.remove('hidden');}else nb.classList.add('hidden');
-  const msgUnread=state.notifs.filter(n=>n.unread&&n.type==='message').length;
+  const msgUnread=state.notifs.filter(n=>n.unread&&n.tipo==='message').length;
   /* El badge de Amigos cuenta solicitudes REALES que me llegaron (Problema 11) */
   const frUnread=solicitudes.filter(a=>a.estado==='pendiente'&&a.para_nombre===state.displayName).length;
   setBadge('badge-messages',msgUnread);setBadge('mn-badge-messages',msgUnread);setBadge('badge-friends',frUnread);
@@ -2163,28 +2267,34 @@ function toggleNotif(e){e.stopPropagation();const p=document.getElementById('not
 function renderNotifPanel(){
   const p=document.getElementById('notif-panel');
   let body;
-  if(state.notifs.length===0)body='<div class="notif-empty">No tienes notificaciones todavía 🎮</div>';
-  else body=state.notifs.map(n=>`
-    <div class="notif-item ${n.unread?'unread':''}" onclick="openNotif('${n.id}')">
+  if(!state.notifs || state.notifs.length===0) body='<div class="notif-empty">No tenés notificaciones todavía 🎮</div>';
+  else body=state.notifs.map((n,i)=>`
+    <div class="notif-item ${n.unread?'unread':''}" onclick="abrirNotif(${i})">
       <img class="nicon" src="${av(n.seed,n.bg)}">
-      <div class="ntext">${n.text}<div class="ntime">${n.time}</div>
-        ${n.actionable&&!n.handled?`<div class="notif-actions"><button class="na-accept" onclick="event.stopPropagation();acceptFriend('${n.id}')">Aceptar</button><button class="na-reject" onclick="event.stopPropagation();rejectFriend('${n.id}')">Rechazar</button></div>`:''}
-      </div>${n.unread?'<span class="ndot"></span>':''}</div>`).join('');
-  p.innerHTML=`<div class="notif-head"><h4>Notificaciones</h4><span class="clear" onclick="clearNotifs()">Marcar leídas</span></div>${body}`;
+      <div class="ntext">${n.text}<div class="ntime">${n.time}</div></div>
+      ${n.unread?'<span class="ndot"></span>':''}</div>`).join('');
+  p.innerHTML=`<div class="notif-head"><h4>Notificaciones</h4><span class="clear" onclick="marcarLeidas()">Marcar leídas</span></div>${body}`;
 }
-function openNotif(id){
-  const n=state.notifs.find(x=>x.id===id);if(!n)return;
-  n.unread=false;renderBadges();
+
+/* Al tocar una notificación, voy al lugar que corresponde. */
+function abrirNotif(i){
+  const n=state.notifs[i];if(!n)return;
   document.getElementById('notif-panel').classList.remove('active');
-  if(n.type==='message'){openConversation(n.from);}
-  else if(n.type==='friend'){navTo('friends');}
-  else if(n.type==='profile'){navTo('profile');}
-  else if(n.type==='invite'){/* manejado abajo */}
+  marcarLeidas();
+  if(n.tipo==='message'||n.tipo==='invite') openConversation(n.from);
+  else if(n.tipo==='friend') navTo('friends');
+  else if(n.tipo==='joined' && n.lobiId) tryJoin(n.lobiId);
 }
-/* Las viejas funciones de amistad falsa. Ahora solo llevan al panel real (Problema 11). */
-function acceptFriend(id){ navTo('friends'); }
-function rejectFriend(id){ navTo('friends'); }
-function clearNotifs(){state.notifs.forEach(n=>n.unread=false);renderBadges();renderNotifPanel();}
+
+/* Marca todo como leído: guarda "vi hasta ahora" en la base (Problema 12). */
+async function marcarLeidas(){
+  vistoHasta = Date.now();
+  state.notifs.forEach(n=>n.unread=false);
+  renderBadges();renderNotifPanel();
+  try{
+    if(miId) await sb.from('notif_leidas').update({ visto_hasta:new Date().toISOString() }).eq('id_usuario', miId);
+  }catch(e){}
+}
 
 /* ============ CARDS ============ */
 function gameCoverStyle(gid){
