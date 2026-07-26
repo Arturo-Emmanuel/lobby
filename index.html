@@ -315,7 +315,9 @@ input,select,textarea{font-family:inherit}
 
 .modal-overlay{display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.66);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:24px;animation:fade .2s ease}
 .modal-overlay.active{display:flex}
-.modal{background:var(--color-card);border:1px solid var(--color-border);border-radius:22px;padding:26px;max-width:460px;width:100%;animation:pop .25s ease;max-height:90vh;overflow-y:auto}
+.modal{background:var(--color-card);border:1px solid var(--color-border);border-radius:22px;padding:26px;max-width:460px;width:100%;animation:pop .25s ease;max-height:90vh;overflow-y:auto;position:relative}
+.modal-x{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:10px;background:var(--color-bg-deep);border:1px solid var(--color-border);color:var(--color-muted);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;z-index:2}
+.modal-x:hover{color:var(--color-text);border-color:var(--color-danger)}
 @keyframes pop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
 .modal h3{font-size:19px;font-weight:700;margin-bottom:6px}
 .modal p{font-size:14px;color:var(--color-muted);margin-bottom:20px;line-height:1.5}
@@ -950,6 +952,7 @@ input,select,textarea{font-family:inherit}
 
 <!-- modal invitar amigo -->
 <div class="modal-overlay" id="modal-invite"><div class="modal">
+  <button class="modal-x" onclick="closeModal('modal-invite')" aria-label="Cerrar">✕</button>
   <h3>Invitar a tu Lobi</h3><p>Elige a un amigo para invitar. Le llegará la invitación por mensaje.</p>
   <div id="invite-friend-list"></div>
 </div></div>
@@ -1798,7 +1801,7 @@ async function cargarPrivados(conQuien){
       .or(`and(de_nombre.eq.${yo},para_nombre.eq.${conQuien}),and(de_nombre.eq.${conQuien},para_nombre.eq.${yo})`)
       .order('created_at',{ascending:true});
     if(error) throw error;
-    dms[conQuien] = (data||[]).map(m=>({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null }));
+    dms[conQuien] = (data||[]).map(m=>({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null, invite: m.invitacion ? JSON.parse(m.invitacion) : null }));
     if(state.view==='messages' && openDM===conQuien){ navTo('messages'); setTimeout(scrollDM,30); }
   }catch(e){ /* si falla, la conversación queda como está */ }
 }
@@ -1819,7 +1822,7 @@ function suscribirsePrivados(){
         if(m.para_nombre!==yo && m.de_nombre!==yo) return;
         const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
         if(!dms[otro]) dms[otro]=[];
-        dms[otro].push({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null });
+        dms[otro].push({ id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null, invite: m.invitacion ? JSON.parse(m.invitacion) : null });
         // Si tengo esa conversación abierta, la refresco; si no, refresco la lista
         refrescar();
       })
@@ -1832,7 +1835,7 @@ function suscribirsePrivados(){
         const otro = m.de_nombre===yo ? m.para_nombre : m.de_nombre;
         const hilo = dms[otro] || [];
         const i = hilo.findIndex(x => x.id === m.id);
-        if(i >= 0) hilo[i] = { id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null };
+        if(i >= 0) hilo[i] = { id: m.id, from: m.de_nombre===yo ? 'me' : 'them', text: m.texto, editado: !!m.editado, imagen: m.imagen || null, invite: m.invitacion ? JSON.parse(m.invitacion) : null };
         refrescar();
       })
     /* Privado BORRADO (Problema 9) */
@@ -2077,6 +2080,21 @@ document.addEventListener('click',e=>{
 
 function openModal(id){document.getElementById(id).classList.add('active')}
 function closeModal(id){document.getElementById(id).classList.remove('active')}
+
+/* Cerrar cualquier modal tocando el fondo oscuro (afuera de la tarjeta). */
+document.addEventListener('click', function(e){
+  if(e.target && e.target.classList && e.target.classList.contains('modal-overlay')){
+    e.target.classList.remove('active');
+  }
+});
+
+/* Cerrar con la tecla Esc el modal que esté abierto. */
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    const abierto = document.querySelector('.modal-overlay.active');
+    if(abierto) abierto.classList.remove('active');
+  }
+});
 let toastT;function toast(msg){const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600);}
 
 /* ============ NOTIFICACIONES ============ */
@@ -2321,7 +2339,7 @@ const views={
 
 function messagesView(){
   const names=Object.keys(dms);
-  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':escapeHtml(last.text||'')}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer"><img class="av" src="${av(p.seed,p.bg)}"><div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
+  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':(last.invite?'🎮 Invitación a un Lobi':escapeHtml(last.text||''))}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer"><img class="av" src="${av(p.seed,p.bg)}"><div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
   if(!openDM)return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div><div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${list}</div>`;
   const p=findPlayer(openDM);
   const thread=dms[openDM].map(m=>renderDMmsg(m,p)).join('');
@@ -2753,27 +2771,68 @@ function openInviteFromRoom(){
   if(!state.currentLobi)return;
   if(state.currentLobi.members.length>=5){toast('Tu Lobi está lleno (5/5)');return;}
   const invitable=friends.filter(f=>!state.currentLobi.members.some(m=>m.name===f));
-  if(invitable.length===0){toast('No tienes amigos libres para invitar');return;}
-  document.getElementById('invite-friend-list').innerHTML=invitable.map(f=>{const p=findPlayer(f);return `<div class="rate-player" style="cursor:pointer" onclick="sendInvite('${f}');closeModal('modal-invite')"><img class="av" src="${av(p.seed,p.bg)}"><div class="rp-meta"><div class="rp-name">${f}</div><div class="rp-role">${p.game}</div></div><span style="color:var(--color-primary);font-weight:600;font-size:13px">Invitar →</span></div>`;}).join('');
+  const cont=document.getElementById('invite-friend-list');
+  if(friends.length===0){
+    cont.innerHTML='<div class="side-empty" style="max-width:none;margin-top:8px">Todavía no tenés amigos. Agregá gente desde su perfil o en Buscar, y después invitalos. 🎮</div>';
+  } else if(invitable.length===0){
+    cont.innerHTML='<div class="side-empty" style="max-width:none;margin-top:8px">Todos tus amigos ya están en el Lobi. 🎉</div>';
+  } else {
+    cont.innerHTML=invitable.map(f=>{const p=findPlayer(f);return `<div class="rate-player" style="cursor:pointer" onclick="sendInvite('${f}');closeModal('modal-invite')"><img class="av" src="${av(p.seed,p.bg)}"><div class="rp-meta"><div class="rp-name">${escapeHtml(f)}</div><div class="rp-role">${escapeHtml(p.game)}</div></div><span style="color:var(--color-primary);font-weight:600;font-size:13px">Invitar →</span></div>`;}).join('');
+  }
   openModal('modal-invite');
 }
+/* Invitar a un amigo: la invitación viaja como un privado especial (Problema 10).
+   Antes solo se guardaba en mi navegador y el amigo nunca la recibía. */
+async function sendInvite(friendName){
+  const l=state.currentLobi;
+  if(!l){ toast('⚠️ No estás en ningún Lobi'); return; }
+  if(!l.real || !l.id.startsWith('real-')){ toast('Este es un Lobi de ejemplo, no se puede invitar'); return; }
+
+  const destino=findPlayer(friendName);
+  if(!destino || !destino.real){ toast('⚠️ Ese amigo no es real'); return; }
+
+  /* Guardo los datos del Lobi en la columna 'invitacion' (como texto JSON) */
+  const datos = JSON.stringify({
+    lobiId: l.id,
+    name: l.name,
+    cats: l.cats || [],
+    compat: l.compat,
+    spots: 5 - l.members.length
+  });
+
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    const { error } = await sb.from('privados').insert({
+      de_usuario: user.id,
+      de_nombre: state.displayName,
+      para_nombre: friendName,
+      texto: '',
+      invitacion: datos
+    });
+    if(error) throw error;
+    toast(`🎮 Invitación enviada a ${friendName}`);
+  }catch(e){
+    toast('⚠️ No se envió: ' + e.message);
+  }
+}
+
 function inviteCardHtml(inv,fromMe){
   return `<div class="invite-card">
-    <div class="ic-top"><span class="ic-spark">🎮</span><div><div class="ic-title">${fromMe?'Invitaste a tu Lobi':'¡Te invitaron a un Lobi!'}</div><div class="ic-sub">${fromMe?'Esperando respuesta…':state.displayName+' quiere jugar contigo'}</div></div></div>
-    <div class="ic-body"><div class="ic-lobi">${inv.name}</div><div class="ic-cats">${inv.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
+    <div class="ic-top"><span class="ic-spark">🎮</span><div><div class="ic-title">${fromMe?'Invitaste a tu Lobi':'¡Te invitaron a un Lobi!'}</div><div class="ic-sub">${fromMe?'Esperando respuesta…':'Alguien quiere jugar contigo'}</div></div></div>
+    <div class="ic-body"><div class="ic-lobi">${escapeHtml(inv.name)}</div><div class="ic-cats">${(inv.cats||[]).map(c=>`<span class="cat-chip">${escapeHtml(c)}</span>`).join('')}</div>
       <div class="ic-meta"><span class="compat high"><span class="dot" style="background:var(--color-success)"></span>${inv.compat}% compatible</span> · ${inv.spots} cupos libres</div>
-      ${fromMe?'':`<div class="ic-actions"><button class="btn btn-secondary btn-sm" style="flex:1" onclick="toast('Invitación rechazada')">Ahora no</button><button class="btn btn-primary btn-sm" style="flex:1" onclick="acceptInvite('${inv.id}')">Unirme 🚀</button></div>`}</div></div>`;
+      ${fromMe?'':`<div class="ic-actions"><button class="btn btn-secondary btn-sm" style="flex:1" onclick="toast('Invitación rechazada')">Ahora no</button><button class="btn btn-primary btn-sm" style="flex:1" onclick="acceptInvite('${inv.lobiId}')">Ver y unirme 🚀</button></div>`}</div></div>`;
 }
-function sendInvite(friendName){
-  const l=state.currentLobi;if(!l)return;
-  const inv={id:l.id,name:l.name,cats:l.cats,compat:l.compat,spots:5-l.members.length};
-  if(!dms[friendName])dms[friendName]=[];
-  dms[friendName].push({from:'me',invite:inv});
-  toast(`🎮 Invitación enviada a ${friendName}`);
-  // demo: el amigo "recibe" y podríamos simular respuesta; lo dejamos visible en su chat
-  if(openDM===friendName)navTo('messages');
+
+/* Acepto la invitación: me lleva a ver quién está (Problema 10).
+   No entra a ciegas — como dice el manual. */
+function acceptInvite(lobiId){
+  if(!lobiId){ toast('⚠️ Invitación inválida'); return; }
+  const existe = (realLobis||[]).find(x=>x.id===lobiId);
+  if(!existe){ toast('😕 Ese Lobi ya no existe'); return; }
+  tryJoin(lobiId);   // muestra quién está y después une
 }
-function acceptInvite(){toast('¡Te uniste! (demo)');}
 
 /* ============ ROOM ============ */
 let roomTab='chat';
