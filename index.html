@@ -1278,6 +1278,7 @@ async function cargarUsuariosReales(){
       .map(p => ({
         name: p.nombre || p.nick || 'Jugador',
         id_usuario: p.id_usuario,        // necesario para mandarle solicitud (Problema 11)
+        avatarFile: p.avatar || null,    // su foto de perfil en Storage (Bug A)
         nick: p.nick || p.nombre || 'jugador',
         pais: p.pais || 'Costa Rica',
         game: p.estilo ? ('Estilo · ' + p.estilo) : 'Jugador de Lobby',
@@ -1476,14 +1477,18 @@ async function cargarMiembros(lobiId){
     const { data, error } = await sb.from('miembros').select('*').eq('lobi_id',lobiId).order('created_at',{ascending:true});
     if(error) throw error;
     if(!state.currentLobi || state.currentLobi.id!==lobiId) return;
-    state.currentLobi.members = (data||[]).map(m=>({
-      name: m.nombre || 'Jugador',
-      role: m.estilo || 'Jugador',
-      seed: m.nombre || 'user',
-      bg: 'c84dff',
-      compat: 90,
-      isMe: user && m.id_usuario===user.id
-    }));
+    state.currentLobi.members = (data||[]).map(m=>{
+      const perfil = (realPlayers||[]).find(p=>p.id_usuario===m.id_usuario);
+      return {
+        name: m.nombre || 'Jugador',
+        role: m.estilo || 'Jugador',
+        seed: m.nombre || 'user',
+        bg: 'c84dff',
+        compat: 90,
+        avatarFile: perfil ? perfil.avatarFile : null,
+        isMe: user && m.id_usuario===user.id
+      };
+    });
     // Refrescar la sala si estamos ahí
     if(state.view==='room') navTo('room');
     renderActiveLobiSidebar();
@@ -1942,6 +1947,26 @@ function suscribirseListaLobis(){
 }
 
 const av=(seed,bg)=>`https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${seed}&backgroundColor=${bg||'c84dff'}`;
+
+/* Avatar de un jugador: su foto real si la tiene, o el robot generado.
+   Como la foto necesita un link firmado (asíncrono), devuelvo el robot con
+   un data-avatarfile; resolverAvatares() lo reemplaza por la foto cuando llega. */
+function avatarDe(p){
+  if(p && p.avatarFile){
+    return `<img class="av" src="${av(p.seed||p.name,p.bg)}" data-avatarfile="${escapeHtml(p.avatarFile)}">`;
+  }
+  return `<img class="av" src="${av(p?p.seed||p.name:'user',p?p.bg:'c84dff')}">`;
+}
+
+/* Busca los avatares con foto real pendiente y les pone el link firmado. */
+async function resolverAvatares(){
+  const pend=document.querySelectorAll('img[data-avatarfile]:not([data-avatarlisto])');
+  for(const img of pend){
+    const nombre=img.getAttribute('data-avatarfile');
+    const url=await linkDeImagen(nombre);
+    if(url){ img.src=url; img.setAttribute('data-avatarlisto','1'); }
+  }
+}
 const compatClass=c=>c>=85?'high':c>=65?'mid':'';
 const compatLabel=c=>c>=85?'Muy compatible':c>=65?'Compatible':'Poco compatible';
 const compatColor=c=>c>=85?'var(--color-success)':c>=65?'var(--color-secondary)':'var(--color-muted)';
@@ -2003,6 +2028,12 @@ async function cargarMiPerfil(){
       if(p.estilo) state.me.style = p.estilo;
       if(p.pais)   state.me.pais = p.pais;
       if(p.nick)   state.nick = p.nick;
+      // Mi foto de perfil guardada (Bug A): pido su link firmado y la muestro
+      if(p.avatar){
+        state.avatarFile = p.avatar;
+        const link = await linkDeImagen(p.avatar);
+        if(link){ state.avatarUrl = link; syncUserUI(); }
+      }
     }
   } catch(e){
     // Si no hay perfil aún (cuentas viejas), no pasa nada: se queda con lo de siempre
@@ -2400,7 +2431,7 @@ function htmlResultados(){
 }
 
 function playerCard(p){
-  return `<div class="player-card"><img class="av" src="${av(p.seed,p.bg)}">
+  return `<div class="player-card">${avatarDe(p)}
     <div class="pinfo"><div class="pname">${escapeHtml(p.name)} <span class="star-rating-mini">★ ${p.rating}</span></div><div class="pgame">${escapeHtml(p.game)}</div>
       <div class="pcompat" style="color:${compatColor(p.compat)}">${p.compat}% · ${compatLabel(p.compat)}</div></div>
     <div class="pactions"><button class="mini-btn" onclick="viewFullProfile('${p.name}')" title="Ver perfil"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0116 0v1"/></svg></button>
@@ -2990,7 +3021,7 @@ let roomTab='chat';
 function roomView(){
   const l=state.currentLobi;
   if(!l)return `<div style="text-align:center;padding:60px 20px"><div style="font-size:40px">🎮</div><h2 style="margin:14px 0 6px">No estás en ningún Lobi</h2><p style="color:var(--color-muted);margin-bottom:20px">Únete a uno o crea el tuyo para empezar a jugar.</p><button class="btn btn-primary" onclick="navTo('lobis')">Ver Lobis</button></div>`;
-  const members=l.members.map(m=>`<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap"><img class="av" src="${av(m.seed,m.bg)}"><span class="on-dot"></span></div><div><div class="mname">${m.name}${m.isMe?' (tú)':''}</div><div class="mrole">${m.role}</div></div></div>`).join('');
+  const members=l.members.map(m=>`<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${m.avatarFile?`<img class="av" src="${av(m.seed,m.bg)}" data-avatarfile="${escapeHtml(m.avatarFile)}">`:`<img class="av" src="${av(m.seed,m.bg)}">`}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}</div><div class="mrole">${escapeHtml(m.role)}</div></div></div>`).join('');
   const inviteSlot=l.members.length<5?`<div class="member-invite" onclick="openInviteFromRoom()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 7a4 4 0 100 8 4 4 0 000-8M20 8v6M23 11h-6"/></svg> Invitar amigo (${5-l.members.length} libre${5-l.members.length===1?'':'s'})</div>`:'';
   const gid=l.game||'minecraft';
   return `<div class="room"><div class="room-header"><div style="flex:1;min-width:0"><div class="rh-title">${l.name}</div><div class="rh-cats rh-desktop-only" style="margin-bottom:5px">${gameTag(gid,l.mode)}</div><div class="rh-cats rh-desktop-only">${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div></div>
@@ -3606,7 +3637,7 @@ document.getElementById('crop-zoom').addEventListener('input',function(){
   cropState.y=cy-(cy-cropState.y)*ratio;
   cropState.scale=newScale;clampCrop();applyCropTransform();
 });
-function applyCrop(){
+async function applyCrop(){
   // medir el área real en pantalla por si el modal la escaló
   const areaEl=document.getElementById('crop-area');
   const rect=areaEl.getBoundingClientRect();
@@ -3621,9 +3652,37 @@ function applyCrop(){
   ctx.imageSmoothingQuality='high';
   ctx.drawImage(cropState.img,sx,sy,sSize,sSize,0,0,OUT,OUT);
   const url=canvas.toDataURL('image/png');
+
+  // Mostrar al toque en mi pantalla (respuesta inmediata)
   state.avatarUrl=url;syncUserUI();
   const si=document.getElementById('set-avatar-img');if(si)si.src=url;
-  closeModal('modal-crop');toast('✅ Foto de perfil actualizada');
+  closeModal('modal-crop');
+  toast('📤 Guardando foto…');
+
+  // Subir a Storage y guardar en mi perfil, para que TODOS la vean (Bug A)
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user){ toast('⚠️ Iniciá sesión'); return; }
+
+    // canvas → archivo real
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    const nombre = `${user.id}/avatar-${Date.now()}.png`;
+
+    const { error:errUp } = await sb.storage.from(BUCKET).upload(nombre, blob, { contentType:'image/png', upsert:true });
+    if(errUp) throw errUp;
+
+    // guardar el nombre del archivo en mi perfil
+    const { error:errPerfil } = await sb.from('perfiles').update({ avatar: nombre }).eq('id_usuario', user.id);
+    if(errPerfil) throw errPerfil;
+
+    // guardar el link firmado para mostrarlo yo ahora
+    const link = await linkDeImagen(nombre);
+    if(link){ state.avatarUrl=link; state.avatarFile=nombre; syncUserUI(); }
+
+    toast('✅ Foto de perfil actualizada');
+  }catch(e){
+    toast('⚠️ No se pudo guardar: ' + e.message);
+  }
 }
 
 /* ============ EMPAREJAR ============ */
@@ -3667,6 +3726,7 @@ function navTo(view){
   document.querySelectorAll('.nav-item[data-view]').forEach(n=>n.classList.toggle('active',n.dataset.view===view));
   document.querySelectorAll('.mnav-item[data-mview]').forEach(n=>n.classList.toggle('active',n.dataset.mview===view));
   content.scrollTop=0;
+  resolverAvatares();   // reemplaza los robots por fotos reales donde las haya (Bug A)
 }
 
 syncUserUI();navTo('home');
