@@ -228,7 +228,7 @@ input,select,textarea{font-family:inherit}
 .rid-compat{font-size:13px;color:var(--color-muted);display:flex;align-items:center;gap:7px}
 .rid-compat .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .room-timer svg{width:16px;height:16px;color:var(--color-primary)}
-.room-body{flex:1;display:grid;grid-template-columns:220px 1fr 290px;min-height:0}
+.room-body{flex:1;display:grid;grid-template-columns:1fr 320px;min-height:0}
 .room-col{display:flex;flex-direction:column;min-height:0}
 .room-members{border-right:1px solid var(--color-border);padding:16px;overflow-y:auto}
 .room-members .colhead{font-size:12px;color:var(--color-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px}
@@ -825,6 +825,29 @@ input,select,textarea{font-family:inherit}
   .mision-destacada{margin-top:12px;padding:12px 14px}
   .mision-destacada .md-pct{font-size:20px}
 }
+
+/* ══════════ TANDA 2: miembros a la derecha ══════════ */
+/* En DESKTOP: la vieja columna de miembros (izquierda) se oculta;
+   los miembros viven ahora en la tarjeta side-members de la derecha. */
+.room-members{display:none}
+.side-members{display:block}
+.side-members .member{padding:8px;margin-bottom:2px}
+.side-members .colhead{margin-bottom:10px}
+
+@media(max-width:880px){
+  /* En MÓVIL: vuelve la columna de miembros para la pestaña "Jugadores",
+     y se oculta la tarjeta side-members para no duplicar. */
+  .room-members{display:none}
+  .room-members.mshow{display:flex}
+  .side-members{display:none}
+}
+
+/* Corona del líder */
+.lider-crown{filter:drop-shadow(0 1px 3px rgba(251,191,36,.5))}
+.mrole-lider{color:#fbbf24!important;font-weight:600}
+/* Botón Salir en la portada: fondo sólido para que no se pierda */
+.room-cover .btn-danger{background:rgba(220,38,38,.9);backdrop-filter:blur(6px);border:1px solid rgba(255,120,120,.4)}
+.room-cover .btn-danger:hover{background:rgba(220,38,38,1)}
 </style>
 </head>
 <body>
@@ -1535,6 +1558,7 @@ async function cargarMiembros(lobiId){
         bg: 'c84dff',
         compat: 90,
         avatarFile: perfil ? perfil.avatarFile : null,
+        id_usuario_real: m.id_usuario,
         isMe: user && m.id_usuario===user.id
       };
     });
@@ -3073,7 +3097,12 @@ let roomTab='chat';
 function roomView(){
   const l=state.currentLobi;
   if(!l)return `<div style="text-align:center;padding:60px 20px"><div style="font-size:40px">🎮</div><h2 style="margin:14px 0 6px">No estás en ningún Lobi</h2><p style="color:var(--color-muted);margin-bottom:20px">Únete a uno o crea el tuyo para empezar a jugar.</p><button class="btn btn-primary" onclick="navTo('lobis')">Ver Lobis</button></div>`;
-  const members=l.members.map(m=>`<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${m.avatarFile?`<img class="av" src="${av(m.seed,m.bg)}" data-avatarfile="${escapeHtml(m.avatarFile)}">`:`<img class="av" src="${av(m.seed,m.bg)}">`}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}</div><div class="mrole">${escapeHtml(m.role)}</div></div></div>`).join('');
+  const members=l.members.map(m=>{
+    const esLider = l.id_creador && m.id_usuario_real && m.id_usuario_real===l.id_creador;
+    const corona = esLider ? ` <svg class="lider-crown" fill="#fbbf24" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 2h14v2H5v-2z"/></svg>` : '';
+    const rol = esLider ? 'Líder del Lobi' : escapeHtml(m.role);
+    return `<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${m.avatarFile?`<img class="av" src="${av(m.seed,m.bg)}" data-avatarfile="${escapeHtml(m.avatarFile)}">`:`<img class="av" src="${av(m.seed,m.bg)}">`}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}${corona}</div><div class="mrole ${esLider?'mrole-lider':''}">${rol}</div></div></div>`;
+  }).join('');
   const inviteSlot=l.members.length<5?`<div class="member-invite" onclick="openInviteFromRoom()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 7a4 4 0 100 8 4 4 0 000-8M20 8v6M23 11h-6"/></svg> Invitar amigo (${5-l.members.length} libre${5-l.members.length===1?'':'s'})</div>`:'';
   const gid=l.game||'minecraft';
   const cat=GAME_CATALOG[gid]||GAME_CATALOG.minecraft;
@@ -3098,7 +3127,6 @@ function roomView(){
   </div>
     <div class="room-mobile-tabs"><button class="${roomTab==='members'?'on':''}" onclick="setRoomTab('members')">Jugadores</button><button class="${roomTab==='chat'?'on':''}" onclick="setRoomTab('chat')">Chat</button><button class="${roomTab==='side'?'on':''}" onclick="setRoomTab('side')">Escritorio</button></div>
     <div class="room-body">
-      <div class="room-col room-members ${roomTab==='members'?'mshow':''}"><div class="colhead">En el Lobi · ${l.members.length}/5</div>${members}${inviteSlot}</div>
       <div class="room-col room-chat" ${roomTab==='chat'?'':'style="display:none"'} id="room-chat-col">
         <div class="chat-scroll" id="chat-scroll">${renderChat()}</div>
         <div class="chat-input"><div class="ci-box"><span class="ci-ic" id="emoji-trigger" onclick="toggleEmoji(event)">😊</span><input type="text" id="chat-field" placeholder="Escribe un mensaje…" onkeydown="if(event.key==='Enter')sendMsg()"><span class="ci-ic" onclick="document.getElementById('chat-image-input').click()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></span></div>
@@ -3107,7 +3135,10 @@ function roomView(){
       <div class="room-col room-side ${roomTab==='side'?'mshow':''}">
         <div class="side-block"><div class="colhead">Objetivos <span class="add" onclick="openObjectiveModal()">+</span></div><div id="objectives-box">${renderObjectives()}</div></div>
         <div class="side-block"><div class="colhead">Encuestas <span class="add" onclick="openPollBuilder()">+</span></div><div id="side-polls-box">${renderSidePolls()}</div></div>
-        <button class="btn btn-secondary btn-block btn-sm" onclick="openModal('modal-extend')">Simular: Lobi por cerrar</button></div></div></div>`;
+        <div class="side-block side-members"><div class="colhead">Miembros · ${l.members.length}/5</div>${members}${inviteSlot}</div>
+        <button class="btn btn-secondary btn-block btn-sm" onclick="openModal('modal-extend')">Simular: Lobi por cerrar</button></div>
+      <div class="room-col room-members ${roomTab==='members'?'mshow':''}"><div class="colhead">En el Lobi · ${l.members.length}/5</div>${members}${inviteSlot}</div>
+      </div></div>`;
 }
 function setRoomTab(t){roomTab=t;cerrarRoomInfo();navTo('room');}
 
