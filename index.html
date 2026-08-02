@@ -2876,6 +2876,10 @@ async function publishLobi(){
       }).select().single();
       if(error) throw error;
       if(data && data.id) lobiId='real-'+data.id;  // id real de la base
+      // El objetivo elegido se convierte en la primera misión del equipo (0%)
+      if(lobiId.startsWith('real-')){
+        await guardarObjetivo(lobiId, obj);
+      }
       toast('✅ ¡Lobi creado!');
     }
   } catch(e){
@@ -3220,7 +3224,18 @@ function renderObjectives(){
       ${isOwner?`<div class="obj-owner-note">✏️ Tú lo creaste · arrastra la barra para actualizar</div>`:`<div class="obj-owner-note">por ${escapeHtml(o.owner)}</div>`}</div>`;
   }).join('');
 }
-function refreshObjectives(){const box=document.getElementById('objectives-box');if(box)box.innerHTML=renderObjectives();}
+function refreshObjectives(){
+  const box=document.getElementById('objectives-box');if(box)box.innerHTML=renderObjectives();
+  /* La misión del equipo depende del primer objetivo: la repinto también */
+  const mis=document.querySelector('.mision-destacada');
+  const nueva=renderMisionDestacada();
+  if(mis){ mis.outerHTML = nueva || ''; }
+  else if(nueva){
+    const cover=document.querySelector('.cover-content');
+    const drop=document.getElementById('room-info-drop');
+    if(cover && drop) drop.insertAdjacentHTML('beforebegin', nueva);
+  }
+}
 let objDrag=null;
 function objDragStart(e,oid){
   e.preventDefault();
