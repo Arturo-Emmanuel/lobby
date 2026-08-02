@@ -301,6 +301,8 @@ input,select,textarea{font-family:inherit}
 .emoji-pop button:hover{background:var(--color-card-2)}
 
 .room-side{border-left:1px solid var(--color-border);padding:16px;overflow-y:auto}
+.room-chat{min-height:0;overflow:hidden}
+.room-chat .chat-scroll{flex:1;min-height:0}
 .side-block{margin-bottom:24px}
 .side-block .colhead{font-size:12px;color:var(--color-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:13px;display:flex;justify-content:space-between;align-items:center}
 .side-block .colhead .add{color:var(--color-primary);font-size:20px;font-weight:400;cursor:pointer;line-height:1}
@@ -779,25 +781,31 @@ input,select,textarea{font-family:inherit}
 
 
 /* ══════════ REDISEÑO DEL LOBI (Tanda 1) ══════════ */
-.room-cover{flex-shrink:0;border-radius:0 0 18px 18px;padding:20px 24px 18px;position:relative;overflow:hidden;background:var(--color-bg-deep)}
-.room-cover.has-cover{background-size:cover;background-position:center center}
+.room-cover{position:relative;flex-shrink:0;padding:0;overflow:hidden;border-radius:0 0 16px 16px;min-height:150px;display:flex;align-items:flex-end}
+.room-cover.has-cover{background-size:cover;background-position:center}
+/* Degradado 0% arriba (imagen visible) -> 100% abajo (se funde con el fondo) */
+.cover-fade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,8,18,0) 0%,rgba(10,8,18,.15) 35%,rgba(10,8,18,.75) 75%,var(--color-bg) 100%);pointer-events:none}
+.cover-content{position:relative;width:100%;padding:16px 22px 16px}
 .cover-top{display:flex;align-items:flex-start;gap:14px}
 .cover-titlewrap{flex:1;min-width:0}
-.room-cover .rh-title{font-size:26px;font-weight:800;color:#fff;text-shadow:0 2px 16px rgba(0,0,0,.7);line-height:1.1;margin-bottom:7px}
-.room-cover .cat-chip{background:rgba(20,15,30,.55);backdrop-filter:blur(6px);color:#e5ddff;border-color:rgba(255,255,255,.12)}
-.cover-sub{font-size:12.5px;color:#c9bede;text-shadow:0 1px 8px rgba(0,0,0,.6);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.room-cover .rh-title{font-size:24px;font-weight:800;color:#fff;text-shadow:0 2px 16px rgba(0,0,0,.8);line-height:1.1;margin-bottom:6px}
+.room-cover .cat-chip{background:rgba(20,15,30,.6);backdrop-filter:blur(6px);color:#e5ddff;border-color:rgba(255,255,255,.14)}
+.cover-sub{font-size:12.5px;color:#d3cae0;text-shadow:0 1px 10px rgba(0,0,0,.8);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cover-sub .compat .dot{margin-right:3px}
-.room-cover .room-timer{background:rgba(20,15,30,.6);backdrop-filter:blur(6px);border-color:rgba(255,255,255,.15);color:#fff}
+.room-cover .room-timer{background:rgba(20,15,30,.65);backdrop-filter:blur(6px);border-color:rgba(255,255,255,.18);color:#fff}
+/* Boton Salir: rojo transparente, letras bien blancas */
+.cover-exit{background:rgba(220,38,38,.28)!important;border:1px solid rgba(248,113,113,.5)!important;color:#fff!important;font-weight:600;backdrop-filter:blur(6px)}
+.cover-exit:hover{background:rgba(220,38,38,.55)!important}
 
-/* Misión flotando dentro de la portada */
-.mision-destacada{margin-top:16px;padding:16px 18px;border-radius:14px;background:rgba(18,14,28,.72);backdrop-filter:blur(10px);border:1px solid rgba(139,92,246,.35)}
-.mision-destacada .md-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.7px;color:#b8a9ff;margin-bottom:9px}
-.mision-destacada .md-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
-.mision-destacada .md-name{font-size:17px;font-weight:600;color:#fff;min-width:0}
-.mision-destacada .md-pct{font-size:24px;font-weight:800;background:linear-gradient(135deg,#c084fc,#60a5fa);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;flex-shrink:0}
-.mision-destacada .md-bar{height:9px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}
+/* Mision del equipo: mas compacta, barra de tamano moderado */
+.mision-destacada{margin-top:14px;padding:14px 16px;border-radius:13px;background:rgba(18,14,28,.78);backdrop-filter:blur(10px);border:1px solid rgba(139,92,246,.35);max-width:560px}
+.mision-destacada .md-label{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.7px;color:#b8a9ff;margin-bottom:8px}
+.mision-destacada .md-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px}
+.mision-destacada .md-name{font-size:16px;font-weight:600;color:#fff;min-width:0}
+.mision-destacada .md-pct{font-size:20px;font-weight:800;background:linear-gradient(135deg,#c084fc,#60a5fa);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;flex-shrink:0}
+.mision-destacada .md-bar{height:7px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}
 .mision-destacada .md-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#8b5cf6,#3b82f6);transition:width .4s}
-.mision-destacada .md-foot{display:flex;justify-content:space-between;gap:10px;margin-top:11px;font-size:12px;color:#b6acc8;flex-wrap:wrap}
+.mision-destacada .md-foot{display:flex;justify-content:space-between;gap:10px;margin-top:10px;font-size:11.5px;color:#b6acc8;flex-wrap:wrap}
 .mision-destacada .md-foot b{color:#fff;font-weight:600}
 .mision-destacada .md-ext{color:#8b83a0}
 
@@ -3107,27 +3115,31 @@ function roomView(){
   const gid=l.game||'minecraft';
   const cat=GAME_CATALOG[gid]||GAME_CATALOG.minecraft;
   const coverUrl = cat.cover || '';
-  return `<div class="room"><div class="room-cover ${coverUrl?'has-cover':''}" ${coverUrl?`style="background-image:linear-gradient(180deg,rgba(10,8,18,.25),rgba(10,8,18,.55) 55%,rgba(10,8,18,.96)),url('${coverUrl}')"`:''}>
-    <div class="cover-top">
-      <div class="cover-titlewrap">
-        <div class="rh-cats rh-desktop-only" style="margin-bottom:6px">${gameTag(gid,l.mode)}</div>
-        <div class="rh-title">${escapeHtml(l.name)}</div>
-        <div class="cover-sub rh-desktop-only"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/5 jugadores</span> · <span class="compat high" style="font-size:12px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
-      </div>
-      <span class="room-timer rh-desktop-only" id="room-timer-badge"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> <span id="room-timer-text">--:--</span></span>
-      <button class="btn btn-danger btn-sm rh-desktop-only" onclick="askLeaveLobi()">Salir</button>
-      <button class="rh-more" onclick="toggleRoomInfo()" title="Más"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-    </div>
-    ${renderMisionDestacada()}
-    <div class="room-info-drop" id="room-info-drop">
-      <div class="rid-cats">${gameTag(gid,l.mode)}${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
-      <div class="rid-compat"><span class="dot" style="background:var(--color-success)"></span> ${l.compat}% compatibilidad promedio</div>
-      <button class="btn btn-danger btn-sm" style="width:100%" onclick="askLeaveLobi()">Salir del Lobi</button>
-    </div>
-  </div>
+  return `<div class="room">
     <div class="room-mobile-tabs"><button class="${roomTab==='members'?'on':''}" onclick="setRoomTab('members')">Jugadores</button><button class="${roomTab==='chat'?'on':''}" onclick="setRoomTab('chat')">Chat</button><button class="${roomTab==='side'?'on':''}" onclick="setRoomTab('side')">Escritorio</button></div>
     <div class="room-body">
       <div class="room-col room-chat" ${roomTab==='chat'?'':'style="display:none"'} id="room-chat-col">
+        <div class="room-cover ${coverUrl?'has-cover':''}" ${coverUrl?`style="background-image:url('${coverUrl}')"`:''}>
+          <div class="cover-fade"></div>
+          <div class="cover-content">
+            <div class="cover-top">
+              <div class="cover-titlewrap">
+                <div class="rh-cats rh-desktop-only" style="margin-bottom:6px">${gameTag(gid,l.mode)}</div>
+                <div class="rh-title">${escapeHtml(l.name)}</div>
+                <div class="cover-sub rh-desktop-only"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/5 jugadores</span> · <span class="compat high" style="font-size:12px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
+              </div>
+              <span class="room-timer rh-desktop-only" id="room-timer-badge"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> <span id="room-timer-text">--:--</span></span>
+              <button class="btn btn-danger btn-sm rh-desktop-only cover-exit" onclick="askLeaveLobi()">Salir</button>
+              <button class="rh-more" onclick="toggleRoomInfo()" title="Más"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div>
+            ${renderMisionDestacada()}
+            <div class="room-info-drop" id="room-info-drop">
+              <div class="rid-cats">${gameTag(gid,l.mode)}${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
+              <div class="rid-compat"><span class="dot" style="background:var(--color-success)"></span> ${l.compat}% compatibilidad promedio</div>
+              <button class="btn btn-danger btn-sm" style="width:100%" onclick="askLeaveLobi()">Salir del Lobi</button>
+            </div>
+          </div>
+        </div>
         <div class="chat-scroll" id="chat-scroll">${renderChat()}</div>
         <div class="chat-input"><div class="ci-box"><span class="ci-ic" id="emoji-trigger" onclick="toggleEmoji(event)">😊</span><input type="text" id="chat-field" placeholder="Escribe un mensaje…" onkeydown="if(event.key==='Enter')sendMsg()"><span class="ci-ic" onclick="document.getElementById('chat-image-input').click()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></span></div>
           <button class="send-btn" onclick="sendMsg()"><svg fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
