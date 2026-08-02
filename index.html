@@ -867,8 +867,8 @@ input,select,textarea{font-family:inherit}
   <div class="auth-wrap"><div class="auth-card">
     <div class="brand-row"><img class="brand-logo-img" data-lobbylogo src=""><div class="brand-name">Lobby</div></div>
     <p class="auth-sub">Encuentra tu gente. Deja de jugar solo.</p>
-    <div class="field"><label>Correo</label><input type="email" id="reg-correo" value="arturo@lobby.gg"></div>
-    <div class="field"><label>Contraseña</label><input type="password" id="reg-clave" value="demo1234"></div>
+    <div class="field"><label>Correo</label><input type="email" id="reg-correo" placeholder="tucorreo@ejemplo.com"></div>
+    <div class="field"><label>Contraseña</label><input type="password" id="reg-clave" placeholder="Mínimo 6 caracteres"></div>
     <div class="checkrow"><input type="checkbox" id="age-check" checked><label for="age-check">Confirmo que soy mayor de 18 años. Lobby es solo para +18.</label></div>
     <button class="btn btn-primary btn-block" onclick="crearCuenta()">Crear mi cuenta</button>
     <p class="auth-foot">¿Ya tienes cuenta? <a onclick="go('screen-login')">Inicia sesión</a></p>
@@ -893,7 +893,7 @@ input,select,textarea{font-family:inherit}
     <div class="ob-progress"><span class="on" id="ob-bar-1"></span><span id="ob-bar-2"></span><span id="ob-bar-3"></span></div>
     <div id="ob-step-1">
       <div class="ob-q">¡Bienvenido a Lobby! 🎮</div><div class="ob-hint">Empecemos por lo básico y qué juegas.</div>
-      <div class="field"><label>Nombre de usuario</label><input type="text" value="ArturoYT" id="ob-name"></div>
+      <div class="field"><label>Nombre de usuario</label><input type="text" placeholder="¿Cómo querés que te vean?" id="ob-name"></div>
       <div class="field"><label>Tu país</label><select class="country-select" id="ob-region"><option>Argentina</option><option>Bolivia</option><option>Chile</option><option>Colombia</option><option selected>Costa Rica</option><option>Cuba</option><option>Ecuador</option><option>El Salvador</option><option>España</option><option>Estados Unidos</option><option>Guatemala</option><option>Honduras</option><option>México</option><option>Nicaragua</option><option>Panamá</option><option>Paraguay</option><option>Perú</option><option>Puerto Rico</option><option>República Dominicana</option><option>Uruguay</option><option>Venezuela</option><option>Otro</option></select></div>
       <div class="ob-q" style="font-size:16px;margin-top:8px">¿Qué juegas?</div>
       <div class="ob-hint" style="margin-bottom:14px">Elige tus juegos. Podrás agregar más después.</div>
@@ -997,8 +997,8 @@ input,select,textarea{font-family:inherit}
   <input type="text" id="poll-q" placeholder="¿Qué construimos primero?" style="width:100%;background:var(--color-bg-deep);border:1px solid var(--color-border);border-radius:11px;padding:12px 14px;color:var(--color-text);font-size:14px;margin-bottom:18px">
   <div class="mini-label" style="margin-top:0">Opciones (máx. 5)</div>
   <div id="poll-opts">
-    <div class="poll-opt-input"><input type="text" placeholder="Opción 1" value="Casa grande"><span class="del-opt" onclick="delPollOpt(this)">×</span></div>
-    <div class="poll-opt-input"><input type="text" placeholder="Opción 2" value="Granja"><span class="del-opt" onclick="delPollOpt(this)">×</span></div>
+    <div class="poll-opt-input"><input type="text" placeholder="Opción 1"><span class="del-opt" onclick="delPollOpt(this)">×</span></div>
+    <div class="poll-opt-input"><input type="text" placeholder="Opción 2"><span class="del-opt" onclick="delPollOpt(this)">×</span></div>
   </div>
   <span class="add-opt-btn" id="add-opt" onclick="addPollOpt()">+ Agregar opción</span>
   <div class="mini-label">Tipo de voto</div>
@@ -2193,7 +2193,8 @@ async function finishOnboarding(){
   const style=document.querySelector('#ob-style .chip.sel');
   const goals=[...document.querySelectorAll('#ob-goals .chip.sel')].map(c=>c.textContent);
   const name=(document.getElementById('ob-name')||{}).value;
-  if(name&&name.trim())state.displayName=name.trim();
+  if(!name || !name.trim()){ toast('Escribí tu nombre de usuario'); return; }
+  state.displayName=name.trim();
   state.me.style=style?style.textContent:'Chill';
   state.me.goals=goals.length?goals:['Hacer amigos'];
   state.me.games=[...obSelectedGames];
@@ -2842,13 +2843,13 @@ function createFormStep(){
   return `<div class="form-card">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><button class="mini-btn" onclick="createStep='game';navTo('create')"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 style="margin:0">Crear Lobi de ${cat.name}</h2></div>
     <p class="fsub">Un punto de encuentro temporal. Dura 1h 30min y se puede extender.</p>
-    <div class="form-group"><div class="glabel">Nombre del Lobi</div><input type="text" id="new-lobi-name" placeholder="Ej. Survival Builders" value="Mi ${cat.modes[0]} Chill"></div>
+    <div class="form-group"><div class="glabel">Nombre del Lobi</div><input type="text" id="new-lobi-name" placeholder="Ej. Survival Builders"></div>
     <div class="form-group"><div class="glabel">Categorías <span style="color:var(--color-muted);font-weight:400">(elige 3)</span></div>
       <div class="cat-block"><div class="cblabel">Modo de juego</div><div class="chip-grid" data-single id="cl-mode">${modes}</div></div>
       <div class="cat-block"><div class="cblabel">Estilo</div><div class="chip-grid" data-single id="cl-style">${styles}</div></div>
       <div class="cat-block"><div class="cblabel">Objetivo</div><div class="chip-grid" data-single id="cl-obj">${objs}</div></div></div>
     <div class="form-group"><div class="glabel">Máximo de jugadores</div><div class="range-row"><input type="range" min="2" max="5" value="5" oninput="document.getElementById('maxv').textContent=this.value+'/5'"><span class="rval" id="maxv">5/5</span></div></div>
-    <div class="form-group"><div class="glabel">Objetivo principal</div><input type="text" id="cl-main-obj" placeholder="¿Qué quieren lograr?" value="Construir una base grande juntos"></div>
+    <div class="form-group"><div class="glabel">Objetivo principal</div><input type="text" id="cl-main-obj" placeholder="¿Qué quieren lograr?"></div>
     <button class="btn btn-primary btn-block" onclick="publishLobi()">Publicar Lobi</button></div>`;
 }
 async function publishLobi(){
