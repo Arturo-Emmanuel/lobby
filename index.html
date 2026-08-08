@@ -220,9 +220,11 @@ input,select,textarea{font-family:inherit}
 .room-header .rh-title{font-size:18px;font-weight:600}
 .room-header .rh-cats{display:flex;gap:6px;margin-top:5px}
 .room-timer{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--color-card);border:1px solid var(--color-border);padding:8px 13px;border-radius:11px;white-space:nowrap;flex-shrink:0}
-.rh-more{display:flex;width:40px;height:40px;border-radius:11px;background:rgba(20,15,30,.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.14);color:#fff;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer}
+.rh-more{display:flex;width:40px;height:40px;border-radius:11px;background:rgba(20,15,30,.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.14);color:#fff;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;transition:transform .2s ease,background .2s ease,border-color .2s ease}
+.rh-more:hover{background:rgba(35,26,52,.8);border-color:rgba(255,255,255,.28);transform:scale(1.08) rotate(90deg)}
+.rh-more:active{transform:scale(.94) rotate(90deg)}
+.rh-more svg{transition:transform .2s ease}
 .rh-more svg{width:20px;height:20px}
-.rh-more:hover{background:rgba(30,22,44,.8)}
 .room-info-drop{display:none;position:absolute;top:56px;right:16px;z-index:30;min-width:190px;padding:8px;border:1px solid var(--color-border);border-radius:14px;background:var(--color-card);box-shadow:0 12px 40px rgba(0,0,0,.5);flex-direction:column;gap:4px}
 .room-info-drop.open{display:flex}
 .room-info-drop .drop-cats{display:flex;flex-wrap:wrap;gap:5px;padding:6px 8px 8px;border-bottom:1px solid var(--color-border);margin-bottom:4px}
@@ -879,6 +881,21 @@ input,select,textarea{font-family:inherit}
 /* Dentro del Lobi: se oculta el buscador de arriba (Arturo) */
 .app.viewing-room .topbar .search{display:none}
 .app.viewing-room .topbar{justify-content:flex-end}
+
+/* Galería de banners */
+.banners-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;max-height:60vh;overflow-y:auto}
+.banner-opt{aspect-ratio:16/10;border-radius:10px;background-size:cover;background-position:center;cursor:pointer;border:2px solid transparent;transition:.15s;position:relative;background-color:var(--color-card-2)}
+.banner-opt:hover{border-color:var(--color-border);transform:scale(1.03)}
+.banner-opt.sel{border-color:var(--color-primary)}
+.banner-opt.sel::after{content:'✓';position:absolute;top:5px;right:7px;background:var(--color-primary);color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.banner-special{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--color-card-2);border:1px solid var(--color-border)}
+.banner-special span{font-size:12px;color:var(--color-muted);font-weight:600}
+.bo-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--color-card)}
+@media(max-width:880px){.banners-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* Animación de aparición del menú de 3 puntitos */
+.room-info-drop.open{animation:dropIn .18s ease}
+@keyframes dropIn{from{opacity:0;transform:translateY(-6px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
 </style>
 </head>
 <body>
@@ -1013,6 +1030,12 @@ input,select,textarea{font-family:inherit}
   </div>
 </div></div>
 
+<div class="modal-overlay" id="modal-banners"><div class="modal" style="max-width:560px">
+  <button class="modal-x" onclick="closeModal('modal-banners')" aria-label="Cerrar">✕</button>
+  <h3>Elegí el banner de tu Lobi 🖼️</h3><p>Imágenes de Lobby. No se sube nada desde tu equipo.</p>
+  <div id="banners-grid" class="banners-grid"></div>
+</div></div>
+
 <!-- modal crear encuesta -->
 <div class="modal-overlay" id="modal-poll"><div class="modal">
   <h3>Crear encuesta</h3><p>La encuesta aparecerá en el escritorio del Lobi (lado derecho) hasta que la cierres o se acabe el tiempo.</p>
@@ -1113,6 +1136,9 @@ const GAME_CATALOG={
     cover:IMG_MC_COVER,          // portada real
     logo:IMG_MC_LOGO,            // logo para etiquetas
     emoji:'⛏️',available:true,
+    // Banners de la galería (viven en Supabase: banners/lobis/minecraft/)
+    // Para agregar más: subí la imagen a esa carpeta y añadí su nombre acá.
+    banners:['survival1.jpg','survival2.jpg','survival3.jpg','survival4.jpg','survival5.jpg','survival6.jpg','survival7.jpg','pvp1.jpg','pvp2.jpg','bedwars2.jpg'],
     // opciones para CREAR un Lobi de este juego
     modes:['Survival','SMP','BedWars','Creativo','PvP','SkyWars','Hardcore','GensOp','Oneblock'],
     styles:['Casual','Chill','Competitivo','Social'],
@@ -1129,6 +1155,45 @@ const GAME_CATALOG={
   valorant:{id:'valorant',name:'Valorant',cover:'linear-gradient(135deg,#ff4655,#7a1f28)',emoji:'🎯',available:false,modes:['Competitivo','Sin rango','Deathmatch'],styles:['Casual','Competitivo','Tryhard'],objectives:['Subir rango','Hacer amigos','Pasar el rato'],fields:[{key:'level',label:'Tu rango',options:['Hierro-Bronce','Plata-Oro','Platino+']},{key:'role',label:'Tu rol',options:['Duelista','Centinela','Iniciador','Controlador']}]},
   fortnite:{id:'fortnite',name:'Fortnite',cover:'linear-gradient(135deg,#8a4fff,#3a1f7a)',emoji:'🔫',available:false,modes:['Battle Royale','Zero Build','Creativo'],styles:['Casual','Competitivo','Social'],objectives:['Ganar','Hacer amigos','Construir'],fields:[{key:'level',label:'Tu nivel',options:['Casual','Intermedio','Pro']},{key:'platform',label:'Plataforma',options:['PC','Consola','Móvil']}]},
 };
+
+/* ====== SISTEMA DE BANNERS POR JUEGO ======
+   Base sólida para que agregar un juego nuevo sea trivial:
+   solo hay que subir sus imágenes a banners/lobis/{juego}/ y listar
+   sus nombres en GAME_CATALOG[juego].banners. El resto funciona solo. */
+const BANNERS_BASE = 'https://ubhlicfxsaznamhajodb.supabase.co/storage/v1/object/public/banners/lobis/';
+
+/* Devuelve la URL completa de un banner. */
+function urlBanner(juego, archivo){
+  return BANNERS_BASE + juego + '/' + archivo;
+}
+
+/* Lista de banners disponibles para un juego (vacía si el juego no tiene). */
+function bannersDeJuego(juego){
+  const cat = GAME_CATALOG[juego];
+  if(!cat || !cat.banners) return [];
+  return cat.banners.map(archivo => ({ archivo, url: urlBanner(juego, archivo) }));
+}
+
+/* La imagen que se muestra para un Lobi: el banner elegido, o el cover por defecto. */
+/* El degradado "clásico" morado-azul, cuando el Lobi no tiene banner elegido. */
+const BANNER_CLASICO = 'linear-gradient(135deg,#C84DFF 0%,#7B3DFF 50%,#3DA5FF 100%)';
+
+/* Devuelve cómo pintar el fondo de un Lobi:
+   - {tipo:'img', valor:url}  → una foto de la galería
+   - {tipo:'grad', valor:css} → el degradado clásico morado
+   Nunca cae a la foto del juego (eso causaba que el "clásico" mostrara el cerdito). */
+function fondoDeLobi(l){
+  if(l && l.banner && l.game){
+    return { tipo:'img', valor: urlBanner(l.game, l.banner) };
+  }
+  return { tipo:'grad', valor: BANNER_CLASICO };
+}
+
+/* Compat: para código viejo que espera una URL o gradiente listo para usar. */
+function imagenDeLobi(l){
+  const f = fondoDeLobi(l);
+  return f.valor;
+}
 
 const state={
   view:'home',currentLobi:null,pendingLobi:null,
@@ -1166,9 +1231,9 @@ function paintLogos(){document.querySelectorAll('[data-lobbylogo]').forEach(el=>
 paintLogos();setTheme('dark');
 
 const lobis=[
-  {id:'l1',game:'minecraft',name:'Survival Builders',mode:'SURVIVAL',cats:['Survival','Chill','Construir'],compat:92,cover:'linear-gradient(135deg,#1a6b3a,#0d3b21)',members:[{name:'Daniel_Mc',role:'Constructor · Survival',seed:'Daniel',bg:'3da5ff',compat:96},{name:'Sofi_Gamer',role:'Explorador · Chill',seed:'Sofi',bg:'c84dff',compat:94},{name:'NotDiego',role:'Survival · Social',seed:'NotD',bg:'7b3dff',compat:93}]},
-  {id:'l2',game:'minecraft',name:'BedWars Pro',mode:'BEDWARS',cats:['BedWars','Competitivo','Ganar'],compat:88,cover:'linear-gradient(135deg,#8a2be2,#3a1a6b)',members:[{name:'LuisCraft',role:'PvP · Tryhard',seed:'Luis',bg:'3da5ff',compat:81},{name:'Mar_Builds',role:'BedWars · Social',seed:'Mar',bg:'c84dff',compat:78},{name:'KevPlays',role:'BedWars · Casual',seed:'Kev',bg:'7b3dff',compat:72},{name:'AnaGG',role:'PvP · Competitivo',seed:'Ana',bg:'3da5ff',compat:70}]},
-  {id:'l3',game:'minecraft',name:'SkyBlock Squad',mode:'SKYBLOCK',cats:['SkyBlock','Casual','Avanzar'],compat:87,cover:'linear-gradient(135deg,#1565c0,#0a2b52)',members:[{name:'TomCraft',role:'SkyBlock · Casual',seed:'Tom',bg:'7b3dff',compat:85},{name:'ValeMC',role:'Explorador · Chill',seed:'Vale',bg:'c84dff',compat:83}]},
+  {id:'l1',game:'minecraft',banner:'survival1.jpg',name:'Survival Builders',mode:'SURVIVAL',cats:['Survival','Chill','Construir'],compat:92,cover:'linear-gradient(135deg,#1a6b3a,#0d3b21)',members:[{name:'Daniel_Mc',role:'Constructor · Survival',seed:'Daniel',bg:'3da5ff',compat:96},{name:'Sofi_Gamer',role:'Explorador · Chill',seed:'Sofi',bg:'c84dff',compat:94},{name:'NotDiego',role:'Survival · Social',seed:'NotD',bg:'7b3dff',compat:93}]},
+  {id:'l2',game:'minecraft',banner:'bedwars2.jpg',name:'BedWars Pro',mode:'BEDWARS',cats:['BedWars','Competitivo','Ganar'],compat:88,cover:'linear-gradient(135deg,#8a2be2,#3a1a6b)',members:[{name:'LuisCraft',role:'PvP · Tryhard',seed:'Luis',bg:'3da5ff',compat:81},{name:'Mar_Builds',role:'BedWars · Social',seed:'Mar',bg:'c84dff',compat:78},{name:'KevPlays',role:'BedWars · Casual',seed:'Kev',bg:'7b3dff',compat:72},{name:'AnaGG',role:'PvP · Competitivo',seed:'Ana',bg:'3da5ff',compat:70}]},
+  {id:'l3',game:'minecraft',banner:'pvp1.jpg',name:'SkyBlock Squad',mode:'SKYBLOCK',cats:['SkyBlock','Casual','Avanzar'],compat:87,cover:'linear-gradient(135deg,#1565c0,#0a2b52)',members:[{name:'TomCraft',role:'SkyBlock · Casual',seed:'Tom',bg:'7b3dff',compat:85},{name:'ValeMC',role:'Explorador · Chill',seed:'Vale',bg:'c84dff',compat:83}]},
   {id:'l4',game:'minecraft',name:'Hardcore Run',mode:'HARDCORE',cats:['Hardcore','Tryhard','Explorar'],compat:79,cover:'linear-gradient(135deg,#b71c1c,#4a0d0d)',members:[{name:'RexHC',role:'Hardcore · Tryhard',seed:'Rex',bg:'3da5ff',compat:79},{name:'JoyPlays',role:'Survival · Social',seed:'Joy',bg:'c84dff',compat:74},{name:'PixelJoe',role:'Explorador · Casual',seed:'Pix',bg:'7b3dff',compat:71}]},
 ];
 const players=[
@@ -1424,6 +1489,7 @@ async function cargarLobisReales(){
         id: 'real-'+l.id,
         id_creador: l.id_creador,
         game: l.juego || 'minecraft',
+        banner: l.banner || null,
         name: l.nombre || 'Lobi',
         mode: (l.modo || 'SURVIVAL'),
         cats: [l.modo, l.estilo, l.objetivo].filter(Boolean),
@@ -2456,7 +2522,11 @@ function lobiCard(l){
   const avs=l.members.slice(0,3).map(m=>`<img src="${av(m.seed,m.bg)}">`).join('');
   const more=l.members.length>3?`<span class="more">+${l.members.length-3}</span>`:'';
   const gid=l.game||'minecraft';
-  return `<div class="lobi-card" onclick="tryJoin('${l.id}')"><div class="lobi-cover" style="background:linear-gradient(135deg,#C84DFF 0%,#7B3DFF 50%,#3DA5FF 100%)"><span class="game-logo-badge">${GAME_CATALOG[gid]&&GAME_CATALOG[gid].logo?`<img src="${GAME_CATALOG[gid].logo}">`:l.mode}</span></div>
+  const fondo=fondoDeLobi(l);
+  const coverStyle = fondo.tipo==='img'
+    ? `background-image:linear-gradient(135deg,rgba(200,77,255,.08),rgba(61,165,255,.05)),url('${fondo.valor}');background-size:cover;background-position:center`
+    : `background:${fondo.valor}`;
+  return `<div class="lobi-card" onclick="tryJoin('${l.id}')"><div class="lobi-cover" style="${coverStyle}"><span class="game-logo-badge">${GAME_CATALOG[gid]&&GAME_CATALOG[gid].logo?`<img src="${GAME_CATALOG[gid].logo}">`:l.mode}</span></div>
     <div class="lobi-body"><div class="lobi-name">${l.name}</div>
       <div class="lobi-cats" style="margin-bottom:9px">${gameTag(gid,l.mode)}</div>
       <div class="lobi-cats">${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
@@ -2885,6 +2955,9 @@ async function publishLobi(){
 
   // Guardar el Lobi en la base de datos
   let lobiId='mine';
+  // Elijo un banner aleatorio de la galería del juego (distinto cada vez)
+  const bannersJuego = (GAME_CATALOG[createGame]||{}).banners || [];
+  const bannerElegido = bannersJuego.length ? bannersJuego[Math.floor(Math.random()*bannersJuego.length)] : null;
   try {
     const { data:{ user } } = await sb.auth.getUser();
     if(user){
@@ -2896,6 +2969,7 @@ async function publishLobi(){
         estilo: style,
         objetivo: obj,
         termina_en: terminaEn,
+        banner: bannerElegido,
         id_creador: user.id
       }).select().single();
       if(error) throw error;
@@ -2910,8 +2984,7 @@ async function publishLobi(){
     toast('⚠️ El Lobi se abrió pero no se guardó: ' + e.message);
   }
 
-  enterLobi({id:lobiId,game:createGame,name:nm,mode:mode.toUpperCase(),cats:[mode,style,obj],compat:91,
-    cover:cat.cover,coverImg:cat.cover.startsWith('data:')||cat.cover.startsWith('http'),
+  enterLobi({id:lobiId,game:createGame,banner:bannerElegido,name:nm,mode:mode.toUpperCase(),cats:[mode,style,obj],compat:91,
     members:[], terminaEn: lobiId.startsWith('real-') ? Date.now()+90*60*1000 : null,
     real: lobiId.startsWith('real-')},true);
   createStep='game';createGame=null;
@@ -3142,12 +3215,15 @@ function roomView(){
   const inviteSlot=l.members.length<5?`<div class="member-invite" onclick="openInviteFromRoom()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 7a4 4 0 100 8 4 4 0 000-8M20 8v6M23 11h-6"/></svg> Invitar amigo (${5-l.members.length} libre${5-l.members.length===1?'':'s'})</div>`:'';
   const gid=l.game||'minecraft';
   const cat=GAME_CATALOG[gid]||GAME_CATALOG.minecraft;
-  const coverUrl = cat.cover || '';
+  const fondo = fondoDeLobi(l);
+  const coverStyleRoom = fondo.tipo==='img'
+    ? `background-image:url('${fondo.valor}');background-size:cover;background-position:center`
+    : `background-image:${fondo.valor}`;
   return `<div class="room">
     <div class="room-mobile-tabs"><button class="${roomTab==='members'?'on':''}" onclick="setRoomTab('members')">Jugadores</button><button class="${roomTab==='chat'?'on':''}" onclick="setRoomTab('chat')">Chat</button><button class="${roomTab==='side'?'on':''}" onclick="setRoomTab('side')">Escritorio</button></div>
     <div class="room-body">
       <div class="room-col room-chat" ${roomTab==='chat'?'':'style="display:none"'} id="room-chat-col">
-        <div class="room-cover ${coverUrl?'has-cover':''}" ${coverUrl?`style="background-image:url('${coverUrl}')"`:''}>
+        <div class="room-cover has-cover" style="${coverStyleRoom}">
           <div class="cover-fade"></div>
           <div class="cover-content">
             <div class="cover-top">
@@ -3162,6 +3238,7 @@ function roomView(){
             ${renderMisionDestacada()}
             <div class="room-info-drop" id="room-info-drop">
               <div class="drop-cats">${gameTag(gid,l.mode)}${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
+              <button class="drop-item" onclick="abrirGaleriaBanners()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg> Cambiar banner</button>
               <button class="drop-item drop-danger" onclick="askLeaveLobi()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg> Salir del Lobi</button>
             </div>
           </div>
@@ -3180,6 +3257,69 @@ function roomView(){
       <div class="room-col room-members ${roomTab==='members'?'mshow':''}"><div class="colhead">En el Lobi · ${l.members.length}/5</div>${members}${inviteSlot}</div>
       </div></div>`;
 }
+/* ====== GALERÍA DE BANNERS ====== */
+
+/* Abre la galería con los banners del juego del Lobi actual. */
+function abrirGaleriaBanners(){
+  cerrarRoomInfo();
+  const l=state.currentLobi;
+  if(!l){ return; }
+  const juego=l.game||'minecraft';
+  const banners=bannersDeJuego(juego);
+  const grid=document.getElementById('banners-grid');
+
+  let html='';
+  // Opción aleatorio
+  html+=`<div class="banner-opt banner-special" onclick="elegirBannerAleatorio()"><div class="bo-icon">🎲</div><span>Aleatorio</span></div>`;
+  // Opción default (el morado con degradado)
+  const defSel = !l.banner ? 'sel' : '';
+  html+=`<div class="banner-opt banner-special ${defSel}" onclick="elegirBanner(null)"><div class="bo-icon" style="background:linear-gradient(135deg,#C84DFF,#7B3DFF,#3DA5FF)"></div><span>Clásico</span></div>`;
+  // Los banners del juego
+  banners.forEach(b=>{
+    const sel = l.banner===b.archivo ? 'sel' : '';
+    html+=`<div class="banner-opt ${sel}" onclick="elegirBanner('${b.archivo}')" style="background-image:url('${b.url}')"></div>`;
+  });
+
+  if(banners.length===0){
+    html+=`<div class="side-empty" style="grid-column:1/-1">Este juego todavía no tiene banners.</div>`;
+  }
+
+  grid.innerHTML=html;
+  openModal('modal-banners');
+}
+
+/* Elige un banner (o null para el clásico) y lo guarda. */
+async function elegirBanner(archivo){
+  const l=state.currentLobi;
+  if(!l) return;
+  l.banner=archivo;
+  // repinto la portada al instante
+  navTo('room');
+  closeModal('modal-banners');
+
+  // guardo en la nube si es un Lobi real
+  if(l.id && l.id.startsWith('real-')){
+    try{
+      const dbId=Number(l.id.replace('real-',''));
+      await sb.from('lobis').update({ banner: archivo }).eq('id', dbId);
+      // actualizo también en la lista local de lobis
+      const rl=(realLobis||[]).find(x=>x.id===l.id);
+      if(rl) rl.banner=archivo;
+    }catch(e){ toast('⚠️ No se guardó: '+e.message); }
+  }
+  toast('✅ Banner actualizado');
+}
+
+/* Elige uno al azar del juego. */
+function elegirBannerAleatorio(){
+  const l=state.currentLobi;
+  if(!l) return;
+  const banners=bannersDeJuego(l.game||'minecraft');
+  if(!banners.length){ elegirBanner(null); return; }
+  const azar=banners[Math.floor(Math.random()*banners.length)];
+  elegirBanner(azar.archivo);
+}
+
 function setRoomTab(t){roomTab=t;cerrarRoomInfo();navTo('room');}
 
 /* La "misión del equipo": el primer objetivo, prominente, flotando sobre
