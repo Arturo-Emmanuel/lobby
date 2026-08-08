@@ -250,6 +250,7 @@ input,select,textarea{font-family:inherit}
 .member-invite:hover{border-color:var(--color-primary);color:#fff}
 
 .room-chat{background:var(--color-bg);min-height:0}
+.room-chat.tab-off{display:flex}  /* en desktop el chat SIEMPRE se ve */
 .chat-scroll{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:14px}
 .dm-open{max-width:680px;margin:0 auto;height:100%;display:flex;flex-direction:column;min-height:0;padding-bottom:14px}
 .dm-open-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-shrink:0}
@@ -431,7 +432,6 @@ input,select,textarea{font-family:inherit}
 .room-mobile-tabs{display:none;gap:8px;padding:10px 16px;border-bottom:1px solid var(--color-border)}
 .room-mobile-tabs button{flex:1;padding:9px;border-radius:10px;background:var(--color-card);border:1px solid var(--color-border);font-size:12.5px;font-weight:600;color:var(--color-muted)}
 .room-mobile-tabs button.on{background:rgba(200,77,255,.16);border-color:var(--color-primary);color:#fff}
-
 /* visor imagen */
 .img-viewer{display:none;position:fixed;inset:0;z-index:95;background:rgba(0,0,0,.9);align-items:center;justify-content:center;padding:30px;cursor:zoom-out}
 .img-viewer.active{display:flex}
@@ -459,11 +459,34 @@ input,select,textarea{font-family:inherit}
   .profile-head{margin-left:14px}
   .lobi-row{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
   .emoji-pop{right:16px;left:16px;width:auto}
-  .room-mobile-tabs{display:flex}
+  /* Pestañas del Lobi como barra inferior fija (Opción B) */
+  .room-mobile-tabs{display:flex;gap:0;position:fixed;bottom:0;left:0;right:0;z-index:45;
+    padding:8px 6px;padding-bottom:calc(8px + env(safe-area-inset-bottom));
+    background:var(--color-bg-deep);border-top:1px solid var(--color-border);border-bottom:none;
+    justify-content:space-around}
+  .rmt-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+    background:transparent;border:none;padding:6px 0;color:var(--color-muted);font-size:10px;font-weight:500;position:relative}
+  .rmt-btn svg{width:22px;height:22px}
+  .rmt-btn span{font-size:10px}
+  .rmt-btn.on{background:transparent;border:none;color:#fff}
+  .rmt-btn.on svg{color:var(--color-primary)}
   .popover{width:auto;left:16px!important;right:16px!important}
   .notif-panel{right:8px;top:58px}
+  /* En el Lobi: se oculta la barra general y el contenido deja aire abajo para la barra del Lobi */
+  .app.viewing-room .mobile-nav{display:none}
+  .app.viewing-room .topbar{display:none}
+  /* Flecha volver en la portada (móvil) */
+  .cover-back{position:absolute;top:12px;left:12px;z-index:20;width:38px;height:38px;border-radius:11px;
+    background:rgba(20,15,30,.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;
+    display:flex;align-items:center;justify-content:center}
+  .cover-back svg{width:22px;height:22px}
+  /* En móvil el título arranca más abajo para no chocar con la flecha */
+  .room-cover .cover-content{padding-top:56px}
+  .room-cover .rh-title{font-size:26px}
+  .app.viewing-room .room-body{padding-bottom:72px;background:#08080C}
+  .app.viewing-room .chat-box .chat-input{margin-bottom:0}
 }
-@media(min-width:881px){.mobile-topbar-only{display:none}}
+@media(min-width:881px){.mobile-topbar-only{display:none}.rh-mobile-only{display:none!important}}
 /* selección de juegos en onboarding */
 .game-pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
 .game-pick{position:relative;border-radius:14px;overflow:hidden;border:2px solid var(--color-border);cursor:pointer;transition:.18s;aspect-ratio:3/4;display:flex;flex-direction:column;justify-content:flex-end}
@@ -855,7 +878,11 @@ input,select,textarea{font-family:inherit}
   /* En MÓVIL: vuelve la columna de miembros para la pestaña "Jugadores",
      y se oculta la tarjeta side-members para no duplicar. */
   .room-members{display:none}
-  .room-members.mshow{display:flex}
+  .room-members.mshow{display:flex;flex-direction:column;height:100%;min-height:0;overflow-y:auto;background:#08080C}
+  .room-chat.tab-off{display:none}
+  .room-chat.tab-on{display:flex}
+  .room-members .members-card{flex-shrink:0}
+  .room-members .members-chatbait{margin-top:auto}
   .side-members{display:none}
 }
 
@@ -1007,6 +1034,67 @@ input,select,textarea{font-family:inherit}
 /* La app entra con un respiro suave cuando la intro se va */
 .app-entrada{animation:appEntrada .7s cubic-bezier(.2,.8,.3,1)}
 @keyframes appEntrada{from{opacity:.4;transform:scale(.99)}to{opacity:1;transform:scale(1)}}
+
+/* ══════════ LOBI MÓVIL: barra superior, miembros, bottom sheet ══════════ */
+.room-topbar{display:none}
+.members-card{background:var(--color-card);border:1px solid var(--color-border);border-radius:14px;padding:14px;margin:14px}
+
+@media(max-width:880px){
+  /* Barra superior del Lobi: degradado que se desvanece, más moderno */
+  .room-topbar{display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top));
+    flex-shrink:0;position:absolute;top:0;left:0;right:0;z-index:50;border-bottom:none;
+    background:linear-gradient(180deg,rgba(6,4,12,.85) 0%,rgba(6,4,12,.5) 55%,rgba(6,4,12,0) 100%);pointer-events:none}
+  .room-topbar .rtb-back,.room-topbar .rtb-more{pointer-events:auto}
+  .rtb-back,.rtb-more{width:38px;height:38px;border-radius:11px;background:rgba(20,15,30,.55);backdrop-filter:blur(6px);
+    border:1px solid rgba(255,255,255,.16);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .rtb-back svg,.rtb-more svg{width:20px;height:20px}
+  .rtb-title{flex:1;text-align:center;font-size:16px;font-weight:700;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.7)}
+
+  /* En móvil, la portada dentro de miembros: más compacta, con esquinas */
+  .room-members .room-cover{border-radius:0;margin:0;min-height:230px}
+  .room-members .room-cover .cover-content{padding-top:calc(70px + env(safe-area-inset-top));padding-left:16px;padding-right:16px}
+  .members-card{margin:16px;min-height:auto}
+  /* La tarjeta de miembros con fondo */
+  .room-members .colhead{margin-bottom:12px}
+  /* El botón de invitar dentro de la tarjeta */
+  .members-card .invite-slot{margin-top:6px}
+
+  /* Ya no usamos la flecha vieja de la portada ni el timer flotante en members */
+  .room-members .cover-back{display:none}
+  /* La barra superior flota; el chat y escritorio necesitan aire arriba */
+  .room-chat{padding-top:56px}
+  .room-side{padding-top:60px}
+  /* En Miembros la barra flota sobre la portada (como la imagen que gustó) */
+  .members-chatbait{display:flex;align-items:center;gap:12px;margin:0 14px 14px;padding:12px 14px;
+    background:var(--color-card);border:1px solid var(--color-border);border-radius:14px;cursor:pointer}
+  .mcb-emoji{font-size:18px}
+  .mcb-text{flex:1;color:var(--color-muted);font-size:14px}
+  .mcb-send{width:38px;height:38px;border-radius:11px;background:var(--grad);display:flex;align-items:center;justify-content:center}
+  .mcb-send svg{width:18px;height:18px}
+}
+
+/* ══════════ BOTTOM SHEET (3 puntitos suben desde abajo) ══════════ */
+@media(max-width:880px){
+  .room-info-drop{position:fixed!important;left:0!important;right:0!important;bottom:0!important;top:auto!important;
+    width:100%!important;min-width:0!important;border-radius:20px 20px 0 0!important;padding:10px 14px calc(20px + env(safe-area-inset-bottom))!important;
+    transform:translateY(100%);transition:transform .28s cubic-bezier(.2,.8,.3,1);display:flex!important;z-index:120;
+    box-shadow:0 -10px 40px rgba(0,0,0,.5)}
+  .room-info-drop.open{transform:translateY(0)}
+  .room-info-drop::before{content:'';display:block;width:40px;height:4px;border-radius:99px;background:var(--color-border);margin:2px auto 12px}
+  .room-info-drop .drop-item{padding:14px 12px;font-size:15px}
+  /* Fondo oscuro detrás del bottom sheet */
+  .room-info-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:119}
+  .room-info-backdrop.open{display:block}
+}
+
+/* Slots de invitar: un círculo punteado + "+" por cada lugar vacío (compu y celular) */
+.member-slot{display:flex;align-items:center;gap:10px;padding:8px;border-radius:11px;cursor:pointer;transition:.15s}
+.member-slot:hover{background:var(--color-card-2)}
+.ms-circle{width:38px;height:38px;border-radius:50%;border:2px dashed var(--color-border);
+  display:flex;align-items:center;justify-content:center;color:var(--color-primary);flex-shrink:0;transition:.15s}
+.ms-circle svg{width:18px;height:18px}
+.member-slot:hover .ms-circle{border-color:var(--color-primary);background:rgba(200,77,255,.08)}
+.ms-label{font-size:13.5px;color:var(--color-primary);font-weight:600}
 </style>
 </head>
 <body>
@@ -3202,7 +3290,7 @@ async function tryJoin(lobiId){
 }
 function confirmJoin(){closeModal('modal-join');if(state.pendingLobi)enterLobi(state.pendingLobi,false);}
 function enterLobi(lobi,created){
-  roomTab='chat';   // siempre arrancamos en el chat, no en el escritorio (Problema 8)
+  roomTab='members';   // en móvil arranca en Miembros (que lleva la portada y misión)
   const c=JSON.parse(JSON.stringify(lobi));
   const esReal=c.id.startsWith('real-');
   // En Lobis de ejemplo me agrego local; en los reales, los miembros vienen de la nube
@@ -3365,7 +3453,14 @@ function roomView(){
     const rol = esLider ? 'Líder del Lobi' : escapeHtml(m.role);
     return `<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${m.avatarFile?`<img class="av" src="${av(m.seed,m.bg)}" data-avatarfile="${escapeHtml(m.avatarFile)}">`:`<img class="av" src="${av(m.seed,m.bg)}">`}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}${corona}</div><div class="mrole ${esLider?'mrole-lider':''}">${rol}</div></div></div>`;
   }).join('');
-  const inviteSlot=l.members.length<5?`<div class="member-invite" onclick="openInviteFromRoom()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 7a4 4 0 100 8 4 4 0 000-8M20 8v6M23 11h-6"/></svg> Invitar amigo (${5-l.members.length} libre${5-l.members.length===1?'':'s'})</div>`:'';
+  const libres = 5 - l.members.length;
+  let inviteSlot = '';
+  for(let i=0; i<libres; i++){
+    inviteSlot += `<div class="member-slot" onclick="openInviteFromRoom()">
+      <div class="ms-circle"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+      <div class="ms-label">Invitar amigo</div>
+    </div>`;
+  }
   const gid=l.game||'minecraft';
   const cat=GAME_CATALOG[gid]||GAME_CATALOG.minecraft;
   const fondo = fondoDeLobi(l);
@@ -3373,19 +3468,28 @@ function roomView(){
     ? `background-image:url('${fondo.valor}');background-size:cover;background-position:center`
     : `background-image:${fondo.valor}`;
   return `<div class="room">
-    <div class="room-mobile-tabs"><button class="${roomTab==='members'?'on':''}" onclick="setRoomTab('members')">Jugadores</button><button class="${roomTab==='chat'?'on':''}" onclick="setRoomTab('chat')">Chat</button><button class="${roomTab==='side'?'on':''}" onclick="setRoomTab('side')">Escritorio</button></div>
+    <div class="room-topbar rh-mobile-only">
+      <button class="rtb-back" onclick="salirVistaLobi()"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="rtb-title">${roomTab==='members'?'Lobi':roomTab==='chat'?'Chat':'Escritorio'}</div>
+      <button class="rtb-more" onclick="toggleRoomInfo()"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+    </div>
+    <div class="room-mobile-tabs">
+      <button class="rmt-btn ${roomTab==='members'?'on':''}" onclick="setRoomTab('members')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M2 21v-1a5 5 0 015-5h4a5 5 0 015 5v1M17 11l2 2 4-4"/></svg><span>Miembros</span></button>
+      <button class="rmt-btn ${roomTab==='chat'?'on':''}" onclick="setRoomTab('chat')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><span>Chat</span></button>
+      <button class="rmt-btn ${roomTab==='side'?'on':''}" onclick="setRoomTab('side')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><span>Escritorio</span></button>
+    </div>
     <div class="room-body">
-      <div class="room-col room-chat" ${roomTab==='chat'?'':'style="display:none"'} id="room-chat-col">
-        <div class="room-cover has-cover" style="${coverStyleRoom}">
+      <div class="room-col room-chat ${roomTab==='chat'?'tab-on':'tab-off'}" id="room-chat-col">
+        <div class="room-cover has-cover rh-desktop-only" style="${coverStyleRoom}">
           <div class="cover-fade"></div>
           <div class="cover-content">
             <div class="cover-top">
               <div class="cover-titlewrap">
-                <div class="rh-cats rh-desktop-only" style="margin-bottom:6px">${gameTag(gid,l.mode)}</div>
+                <div class="rh-cats" style="margin-bottom:6px">${gameTag(gid,l.mode)}</div>
                 <div class="rh-title">${escapeHtml(l.name)}</div>
-                <div class="cover-sub rh-desktop-only"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/5 jugadores</span> · <span class="compat high" style="font-size:12px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
+                <div class="cover-sub"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/5 jugadores</span> · <span class="compat high" style="font-size:12px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
               </div>
-              <span class="room-timer rh-desktop-only" id="room-timer-badge"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> <span id="room-timer-text">--:--</span></span>
+              <span class="room-timer" id="room-timer-badge"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> <span id="room-timer-text">--:--</span></span>
               <button class="rh-more cover-more" onclick="toggleRoomInfo()" title="Más opciones"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
             </div>
             ${renderMisionDestacada()}
@@ -3407,7 +3511,28 @@ function roomView(){
         <div class="side-block"><div class="colhead">Encuestas <span class="add" onclick="openPollBuilder()">+</span></div><div id="side-polls-box">${renderSidePolls()}</div></div>
         <div class="side-block side-members"><div class="colhead">Miembros · ${l.members.length}/5</div>${members}${inviteSlot}</div>
         <button class="btn btn-secondary btn-block btn-sm" onclick="openModal('modal-extend')">Simular: Lobi por cerrar</button></div>
-      <div class="room-col room-members ${roomTab==='members'?'mshow':''}"><div class="colhead">En el Lobi · ${l.members.length}/5</div>${members}${inviteSlot}</div>
+      <div class="room-col room-members ${roomTab==='members'?'mshow':''}">
+        <div class="room-cover has-cover rh-mobile-only" style="${coverStyleRoom}">
+          <div class="cover-fade"></div>
+          <div class="cover-content">
+            <div class="cover-top">
+              <div class="cover-titlewrap">
+                <div class="rh-title">${escapeHtml(l.name)}</div>
+                <div class="cover-sub"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/5 jugadores</span> · <span class="compat high"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
+              </div>
+            </div>
+            ${renderMisionDestacada()}
+          </div>
+        </div>
+        <div class="members-card">
+          <div class="colhead">Miembros · ${l.members.length}/5</div>${members}${inviteSlot}
+        </div>
+        <div class="members-chatbait" onclick="irAlChatYescribir()">
+          <span class="mcb-emoji">😊</span>
+          <span class="mcb-text">Escribe un mensaje…</span>
+          <span class="mcb-send"><svg fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></span>
+        </div>
+      </div>
       </div></div>`;
 }
 /* ====== GALERÍA DE BANNERS ====== */
@@ -3610,6 +3735,23 @@ function elegirBannerAleatorio(){
   elegirBanner(azar.archivo);
 }
 
+/* Sale de la VISTA del Lobi (vuelve a Inicio) sin abandonar el Lobi.
+   Seguís siendo miembro; podés volver con el botón del Lobi activo. */
+/* Desde la caja falsa en Miembros: va al Chat y enfoca el campo real. */
+function irAlChatYescribir(){
+  roomTab='chat';
+  cerrarRoomInfo();
+  navTo('room');
+  setTimeout(()=>{
+    const campo=document.getElementById('chat-field');
+    if(campo) campo.focus();
+  }, 120);
+}
+
+function salirVistaLobi(){
+  navTo('home');
+}
+
 function setRoomTab(t){roomTab=t;cerrarRoomInfo();navTo('room');}
 
 /* La "misión del equipo": el primer objetivo, prominente, flotando sobre
@@ -3628,7 +3770,7 @@ function renderMisionDestacada(){
     tiempo = `<div class="md-foot"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> Tiempo restante: <b id="md-tiempo">${formatoTiempoCorto(quedan)}</b></span><span class="md-ext">Extensión disponible: +1h</span></div>`;
   }
 
-  return `<div class="mision-destacada rh-desktop-only">
+  return `<div class="mision-destacada">
     <div class="md-head">
       <div class="md-label"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg> MISIÓN DEL EQUIPO</div>
     </div>
@@ -3650,10 +3792,27 @@ function formatoTiempoCorto(segs){
 function toggleRoomInfo(){
   const d=document.getElementById('room-info-drop');
   if(d) d.classList.toggle('open');
+  actualizarBackdropInfo();
 }
 function cerrarRoomInfo(){
   const d=document.getElementById('room-info-drop');
   if(d) d.classList.remove('open');
+  actualizarBackdropInfo();
+}
+/* Fondo oscuro detrás del bottom sheet en móvil */
+function actualizarBackdropInfo(){
+  const d=document.getElementById('room-info-drop');
+  let bd=document.getElementById('room-info-backdrop');
+  const abierto = d && d.classList.contains('open');
+  if(abierto && !bd){
+    bd=document.createElement('div');
+    bd.id='room-info-backdrop';
+    bd.className='room-info-backdrop open';
+    bd.onclick=cerrarRoomInfo;
+    document.body.appendChild(bd);
+  } else if(!abierto && bd){
+    bd.remove();
+  }
 }
 
 /* ====== OBJETIVOS (crear, arrastrar para editar, máx 7) ====== */
