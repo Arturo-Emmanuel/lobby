@@ -930,6 +930,83 @@ input,select,textarea{font-family:inherit}
 .app.sidebar-collapsed .sb-user{justify-content:center}
 /* El badge sigue visible aunque el texto se oculte */
 .app.sidebar-collapsed .nav-item .nav-badge{position:absolute;top:4px;right:10px;font-size:10px}
+
+/* ══════════════════ INTRO DE BIENVENIDA ══════════════════ */
+.intro-overlay{position:fixed;inset:0;z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(6,4,12,.82);backdrop-filter:blur(8px);padding:20px;box-sizing:border-box}
+.intro-overlay.active{display:flex;animation:introFadeIn .4s ease}
+.intro-overlay.saliendo{animation:introFadeOut .45s ease forwards}
+@keyframes introFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes introFadeOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(1.04)}}
+.intro-overlay.saliendo .intro-card{animation:introCardOut .4s ease forwards}
+@keyframes introCardOut{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(-20px) scale(.95)}}
+
+.intro-skip{position:absolute;top:20px;right:22px;background:rgba(30,22,44,.7);border:1px solid rgba(255,255,255,.14);
+  color:#cbb8e8;padding:8px 16px;border-radius:99px;font-size:13px;font-weight:600;cursor:pointer;transition:.2s;z-index:2}
+.intro-skip:hover{background:rgba(50,36,72,.9);color:#fff}
+
+.intro-stage{width:100%;max-width:720px;display:flex;align-items:center;justify-content:center;transition:max-width .3s ease}
+.intro-stage.wide{max-width:860px}
+
+.intro-card{display:flex;align-items:flex-end;gap:20px;width:100%;animation:introSlideUp .5s cubic-bezier(.2,.8,.3,1)}
+@keyframes introSlideUp{from{opacity:0;transform:translateY(30px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+.intro-personaje{width:150px;height:auto;flex-shrink:0;image-rendering:pixelated;filter:drop-shadow(0 8px 20px rgba(0,0,0,.5));animation:introBob 3s ease-in-out infinite}
+@keyframes introBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+.intro-content{flex:1;min-width:0;background:linear-gradient(145deg,rgba(24,18,38,.96),rgba(16,12,26,.96));
+  border:1.5px solid rgba(200,77,255,.4);border-radius:18px;padding:24px 26px;box-shadow:0 16px 50px rgba(0,0,0,.5),0 0 40px rgba(200,77,255,.1)}
+.intro-titulo{font-size:24px;font-weight:800;margin:0 0 14px;color:#fff;line-height:1.15}
+.intro-texto{min-height:60px}
+.intro-texto p{font-size:15px;line-height:1.55;color:#d8cfe8;margin:0 0 10px}
+.intro-texto p:last-child{margin-bottom:0}
+
+.intro-next{margin-top:20px;background:linear-gradient(135deg,#C84DFF,#7B3DFF);color:#fff;border:none;
+  padding:12px 24px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:8px;
+  transition:.2s;box-shadow:0 6px 18px rgba(200,77,255,.35);font-family:inherit}
+.intro-next:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(200,77,255,.5)}
+.intro-next span{font-size:20px;transition:transform .2s}
+.intro-next:hover span{transform:translateX(4px)}
+
+/* Los 3 pasos (slide 2): tarjetas verticales con número, título, imagen y texto */
+.intro-pasos{display:flex;gap:14px;justify-content:center;align-items:stretch}
+.intro-paso{flex:1;max-width:220px;background:rgba(12,9,20,.6);border:1.5px solid;border-radius:14px;padding:12px;
+  display:flex;flex-direction:column;gap:10px;opacity:0;animation:introPasoIn .5s ease forwards}
+@keyframes introPasoIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+.ip-head{display:flex;align-items:center;gap:8px}
+.ip-num{width:24px;height:24px;border-radius:7px;color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ip-titulo{font-size:13.5px;font-weight:700;color:#fff;line-height:1.1}
+.ip-img{width:100%;aspect-ratio:1;background-size:cover;background-position:center;border-radius:10px;image-rendering:pixelated}
+.ip-texto{font-size:12px;line-height:1.45;color:#cfc5e0;margin:0}
+
+@media(max-width:720px){
+  .intro-pasos{flex-direction:column;gap:12px}
+  .intro-paso{max-width:none;display:grid;grid-template-columns:96px 1fr;grid-template-rows:auto auto;gap:6px 14px;align-items:center;padding:14px}
+  .intro-paso .ip-head{grid-column:2;grid-row:1;flex-direction:row;gap:8px}
+  .ip-img{grid-column:1;grid-row:1/3;width:96px;height:96px;align-self:center}
+  .ip-titulo{font-size:15px}
+  .ip-num{width:26px;height:26px;font-size:15px}
+  .ip-texto{grid-column:2;grid-row:2;font-size:13.5px;line-height:1.5}
+}
+
+/* Puntitos de navegación */
+.intro-dots{display:flex;gap:10px;margin-top:26px}
+.intro-dot{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.2);cursor:pointer;transition:.25s}
+.intro-dot.on{background:linear-gradient(135deg,#C84DFF,#3DA5FF);width:26px;border-radius:5px}
+
+@media(max-width:720px){
+  .intro-card{flex-direction:column;align-items:center;gap:0}
+  .intro-personaje{width:110px;margin-bottom:-14px;position:relative;z-index:2}
+  .intro-content{padding:20px;width:100%;box-sizing:border-box}
+  .intro-titulo{font-size:20px;text-align:center}
+  .intro-texto{text-align:center}
+  .intro-next{width:100%;justify-content:center}
+  .intro-skip{top:14px;right:14px}
+}
+
+/* La app entra con un respiro suave cuando la intro se va */
+.app-entrada{animation:appEntrada .7s cubic-bezier(.2,.8,.3,1)}
+@keyframes appEntrada{from{opacity:.4;transform:scale(.99)}to{opacity:1;transform:scale(1)}}
 </style>
 </head>
 <body>
@@ -1066,6 +1143,13 @@ input,select,textarea{font-family:inherit}
   </div>
 </div></div>
 
+<!-- ===== INTRO DE BIENVENIDA ===== -->
+<div class="intro-overlay" id="intro-overlay">
+  <button class="intro-skip" onclick="cerrarIntro()">Saltar ✕</button>
+  <div class="intro-stage" id="intro-stage"></div>
+  <div class="intro-dots" id="intro-dots"></div>
+</div>
+
 <div class="modal-overlay" id="modal-banners"><div class="modal" style="max-width:560px">
   <button class="modal-x" onclick="closeModal('modal-banners')" aria-label="Cerrar">✕</button>
   <h3>Elegí el banner de tu Lobi 🖼️</h3><p>Imágenes de Lobby. No se sube nada desde tu equipo.</p>
@@ -1197,6 +1281,19 @@ const GAME_CATALOG={
    solo hay que subir sus imágenes a banners/lobis/{juego}/ y listar
    sus nombres en GAME_CATALOG[juego].banners. El resto funciona solo. */
 const BANNERS_BASE = 'https://ubhlicfxsaznamhajodb.supabase.co/storage/v1/object/public/banners/lobis/';
+
+/* ====== IMÁGENES DE LA INTRO DE BIENVENIDA ======
+   Viven en banners/intro/. Para cambiarlas, se reemplaza el archivo en Supabase. */
+const INTRO_BASE = 'https://ubhlicfxsaznamhajodb.supabase.co/storage/v1/object/public/banners/intro/';
+const INTRO_IMG = {
+  saludando: INTRO_BASE + 'Lobbyx1_saludando.png',
+  aclarando: INTRO_BASE + 'Lobbyx2_aclarando.png',
+  pensando:  INTRO_BASE + 'Lobbyx3_pensando.png',
+  paso1:     INTRO_BASE + 'Paso1lobby.jpeg',
+  paso2:     INTRO_BASE + 'Paso2lobby.jpeg',
+  paso3:     INTRO_BASE + 'Paso3lobby.jpeg',
+  boton:     INTRO_BASE + 'boton_vamosalla.jpeg'
+};
 
 /* Devuelve la URL completa de un banner. */
 function urlBanner(juego, archivo){
@@ -2243,6 +2340,10 @@ async function cargarMiPerfil(){
         const link = urlAvatar(p.avatar);
         if(link){ state.avatarUrl = link; syncUserUI(); }
       }
+      // Intro de bienvenida: si nunca la vio, se la mostramos una vez
+      if(!p.vio_intro){
+        setTimeout(abrirIntro, 600);   // pequeña espera para que la app cargue
+      }
     }
   } catch(e){
     // Si no hay perfil aún (cuentas viejas), no pasa nada: se queda con lo de siempre
@@ -2375,6 +2476,11 @@ document.addEventListener('keydown', function(e){
   if(e.key === 'Escape'){
     const abierto = document.querySelector('.modal-overlay.active');
     if(abierto) abierto.classList.remove('active');
+  }
+  // Atajo secreto: Ctrl + Shift + L → reabrir la intro de bienvenida
+  if(e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')){
+    e.preventDefault();
+    abrirIntro();
   }
 });
 let toastT;function toast(msg){const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600);}
@@ -3307,6 +3413,143 @@ function roomView(){
 /* ====== GALERÍA DE BANNERS ====== */
 
 /* Abre la galería con los banners del juego del Lobi actual. */
+/* ══════════════════ INTRO DE BIENVENIDA ══════════════════ */
+
+/* Los 3 slides. Cada uno: personaje, y contenido con texto para la máquina de escribir. */
+const INTRO_SLIDES = [
+  {
+    personaje: INTRO_IMG.saludando,
+    titulo: '¡Bienvenido a Lobby!',
+    lineas: [
+      'El lugar donde gamers como vos encuentran su gente para jugar.',
+      'Dejá de jugar solo. Acá encontrás tu equipo. 🎮'
+    ]
+  },
+  {
+    personaje: INTRO_IMG.aclarando,
+    titulo: 'Así de fácil, en 3 pasos:',
+    pasos: [
+      { img: INTRO_IMG.paso1, num:'1', color:'#C84DFF', titulo:'Crea tu perfil', texto:'Contanos sobre vos, tus juegos favoritos y qué buscás. Así te mostramos las mejores opciones.' },
+      { img: INTRO_IMG.paso2, num:'2', color:'#3DA5FF', titulo:'Encuentra tu gente', texto:'Explorá jugadores compatibles, mirá sus perfiles y conectá con gente que comparte tus intereses.' },
+      { img: INTRO_IMG.paso3, num:'3', color:'#22C55E', titulo:'Juega y crea recuerdos', texto:'Unite a Lobis, coordiná partidas, hablá con tu equipo y disfrutá como nunca antes.' }
+    ]
+  },
+  {
+    personaje: INTRO_IMG.pensando,
+    titulo: '¿List@ para arrancar?',
+    lineas: [
+      'En Lobby no jugás solo. Encontrás tu equipo, tus amigos y tu lugar.',
+      '¡Vamos allá! 🚀'
+    ],
+    final: true
+  }
+];
+
+let introSlideActual = 0;
+let introTypeTimer = null;
+
+/* Abre la intro desde el principio. */
+function abrirIntro(){
+  introSlideActual = 0;
+  document.getElementById('intro-overlay').classList.add('active');
+  pintarIntroSlide();
+}
+
+/* Cierra la intro con una animación suave, y marca que ya la vio. */
+async function cerrarIntro(){
+  if(introTypeTimer){ clearTimeout(introTypeTimer); introTypeTimer=null; }
+  const overlay = document.getElementById('intro-overlay');
+  overlay.classList.add('saliendo');   // dispara la animación de salida
+  const cont = document.getElementById('app-content');
+  if(cont){ cont.classList.add('app-entrada'); setTimeout(()=>cont.classList.remove('app-entrada'), 700); }
+  setTimeout(()=>{
+    overlay.classList.remove('active','saliendo');
+  }, 450);
+  // marcar en la base que ya vio la intro
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(user) await sb.from('perfiles').update({ vio_intro: true }).eq('id_usuario', user.id);
+  }catch(e){ /* si falla, no rompe */ }
+}
+
+function irSlide(n){
+  if(introTypeTimer){ clearTimeout(introTypeTimer); introTypeTimer=null; }
+  if(n < 0) n = 0;
+  if(n >= INTRO_SLIDES.length){ cerrarIntro(); return; }
+  introSlideActual = n;
+  pintarIntroSlide();
+}
+
+/* Dibuja el slide actual con animación. */
+function pintarIntroSlide(){
+  const s = INTRO_SLIDES[introSlideActual];
+  const stage = document.getElementById('intro-stage');
+  stage.classList.toggle('wide', !!s.pasos);
+
+  let cuerpo = '';
+  if(s.pasos){
+    cuerpo = `<div class="intro-pasos">${s.pasos.map((p,i)=>`
+      <div class="intro-paso" style="animation-delay:${i*0.15}s;border-color:${p.color}66">
+        <div class="ip-head"><span class="ip-num" style="background:${p.color}">${p.num}</span><span class="ip-titulo">${escapeHtml(p.titulo)}</span></div>
+        <div class="ip-img" style="background-image:url('${p.img}')"></div>
+        <p class="ip-texto">${escapeHtml(p.texto)}</p>
+      </div>`).join('')}</div>`;
+  } else {
+    cuerpo = `<div class="intro-texto" id="intro-typed"></div>`;
+  }
+
+  const esUltimo = introSlideActual === INTRO_SLIDES.length-1;
+  const btnTexto = esUltimo ? '¡Vamos allá!' : 'Siguiente';
+
+  stage.innerHTML = `
+    <div class="intro-card" key="${introSlideActual}">
+      <img class="intro-personaje" src="${s.personaje}" alt="Lobby">
+      <div class="intro-content">
+        <h2 class="intro-titulo">${escapeHtml(s.titulo)}</h2>
+        ${cuerpo}
+        <button class="intro-next" onclick="irSlide(${introSlideActual+1})">${btnTexto} <span>›</span></button>
+      </div>
+    </div>`;
+
+  pintarIntroDots();
+
+  // Efecto máquina de escribir en las líneas (solo si el slide tiene líneas)
+  if(s.lineas){
+    const cont = document.getElementById('intro-typed');
+    escribirMaquina(cont, s.lineas);
+  }
+}
+
+/* Efecto máquina de escribir: escribe línea por línea, letra por letra. */
+function escribirMaquina(cont, lineas){
+  if(!cont) return;
+  cont.innerHTML = '';
+  let li = 0, ci = 0;
+  const parrafos = lineas.map(()=>{ const p=document.createElement('p'); cont.appendChild(p); return p; });
+
+  function tick(){
+    if(li >= lineas.length) return;
+    const linea = lineas[li];
+    if(ci <= linea.length){
+      parrafos[li].textContent = linea.slice(0, ci);
+      ci++;
+      introTypeTimer = setTimeout(tick, 22);
+    } else {
+      li++; ci = 0;
+      introTypeTimer = setTimeout(tick, 260); // pausa entre líneas
+    }
+  }
+  tick();
+}
+
+/* Los puntitos de navegación (slide 1 de 3). */
+function pintarIntroDots(){
+  const dots = document.getElementById('intro-dots');
+  dots.innerHTML = INTRO_SLIDES.map((_,i)=>
+    `<span class="intro-dot ${i===introSlideActual?'on':''}" onclick="irSlide(${i})"></span>`
+  ).join('');
+}
+
 function abrirGaleriaBanners(){
   cerrarRoomInfo();
   const l=state.currentLobi;
