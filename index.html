@@ -2141,7 +2141,7 @@ async function resolverAvatares(){
   const pend=document.querySelectorAll('img[data-avatarfile]:not([data-avatarlisto])');
   for(const img of pend){
     const nombre=img.getAttribute('data-avatarfile');
-    const url=await linkDeImagen(nombre);
+    const url=urlAvatar(nombre);   // link público permanente (no expira)
     if(url){ img.src=url; img.setAttribute('data-avatarlisto','1'); }
   }
 }
@@ -2206,10 +2206,10 @@ async function cargarMiPerfil(){
       if(p.estilo) state.me.style = p.estilo;
       if(p.pais)   state.me.pais = p.pais;
       if(p.nick)   state.nick = p.nick;
-      // Mi foto de perfil guardada (Bug A): pido su link firmado y la muestro
+      // Mi foto de perfil guardada (Bug A): link público permanente
       if(p.avatar){
         state.avatarFile = p.avatar;
-        const link = await linkDeImagen(p.avatar);
+        const link = urlAvatar(p.avatar);
         if(link){ state.avatarUrl = link; syncUserUI(); }
       }
     }
@@ -3522,6 +3522,14 @@ function renderChat(){
    base; el link para verla se pide aparte y vence en 1 hora. */
 
 const BUCKET = 'chat';
+const BUCKET_AVATARES = 'avatares';
+const AVATARES_BASE = 'https://ubhlicfxsaznamhajodb.supabase.co/storage/v1/object/public/avatares/';
+
+/* Link público y PERMANENTE de un avatar (no expira, a diferencia del privado). */
+function urlAvatar(nombre){
+  if(!nombre) return null;
+  return AVATARES_BASE + nombre;
+}
 const MAX_MB = 5;
 const linksDeFotos = {};   // nombre del archivo -> link temporal ya pedido
 
@@ -3991,15 +3999,16 @@ async function applyCrop(){
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
     const nombre = `${user.id}/avatar-${Date.now()}.png`;
 
-    const { error:errUp } = await sb.storage.from(BUCKET).upload(nombre, blob, { contentType:'image/png', upsert:true });
+    // Va al bucket PÚBLICO de avatares: link permanente, se ve siempre y para todos
+    const { error:errUp } = await sb.storage.from(BUCKET_AVATARES).upload(nombre, blob, { contentType:'image/png', upsert:true });
     if(errUp) throw errUp;
 
     // guardar el nombre del archivo en mi perfil
     const { error:errPerfil } = await sb.from('perfiles').update({ avatar: nombre }).eq('id_usuario', user.id);
     if(errPerfil) throw errPerfil;
 
-    // guardar el link firmado para mostrarlo yo ahora
-    const link = await linkDeImagen(nombre);
+    // link público permanente para mostrarlo ya
+    const link = urlAvatar(nombre);
     if(link){ state.avatarUrl=link; state.avatarFile=nombre; syncUserUI(); }
 
     toast('✅ Foto de perfil actualizada');
