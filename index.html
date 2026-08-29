@@ -1699,29 +1699,35 @@ function playersParaMostrar(limite){
 let realLobis=null;
 
 /* Lee los Lobis reales creados por usuarios, desde la base de datos. */
+/* Convierte una fila de la tabla 'lobis' en el objeto que usa la app.
+   Lo saqué a su propia función para que cargarLobisReales() y la restauración
+   del Lobi activo (Pilar 4) armen el objeto EXACTAMENTE igual. Si algún día
+   agregamos un campo, se agrega en un solo lugar. */
+function filaALobi(l){
+  const cat = GAME_CATALOG[l.juego] || GAME_CATALOG.minecraft;
+  return {
+    id: 'real-'+l.id,
+    id_creador: l.id_creador,
+    game: l.juego || 'minecraft',
+    banner: l.banner || null,
+    name: l.nombre || 'Lobi',
+    mode: (l.modo || 'SURVIVAL'),
+    cats: [l.modo, l.estilo, l.objetivo].filter(Boolean),
+    compat: 90,
+    cover: cat.cover,
+    coverImg: cat.cover.startsWith('data:') || cat.cover.startsWith('http'),
+    members: [],
+    terminaEn: l.termina_en ? new Date(l.termina_en).getTime() : null,
+    real: true
+  };
+}
+
 async function cargarLobisReales(){
   try {
     const { data, error } = await sb.from('lobis').select('*').order('created_at',{ascending:false});
     if(error) throw error;
     if(!data){ realLobis=[]; return; }
-    realLobis = data.map(l => {
-      const cat = GAME_CATALOG[l.juego] || GAME_CATALOG.minecraft;
-      return {
-        id: 'real-'+l.id,
-        id_creador: l.id_creador,
-        game: l.juego || 'minecraft',
-        banner: l.banner || null,
-        name: l.nombre || 'Lobi',
-        mode: (l.modo || 'SURVIVAL'),
-        cats: [l.modo, l.estilo, l.objetivo].filter(Boolean),
-        compat: 90,
-        cover: cat.cover,
-        coverImg: cat.cover.startsWith('data:') || cat.cover.startsWith('http'),
-        members: [],
-        terminaEn: l.termina_en ? new Date(l.termina_en).getTime() : null,
-        real: true
-      };
-    });
+    realLobis = data.map(filaALobi);
   } catch(e){
     realLobis = [];
   }
@@ -1933,10 +1939,182 @@ function pararLatido(){
 }
 
 /* Cuando la pestaña vuelve al frente, late enseguida (por si el navegador
-   la congeló en segundo plano y se saltó algún latido). */
+   la congeló en segundo plano y se saltó algún latido) y de paso reviso
+   que mi Lobi siga vivo (Pilar 3). */
 document.addEventListener('visibilitychange', function(){
-  if(!document.hidden) latir();
+  if(!document.hidden){ latir(); verificarQueMiLobiSigueVivo(); }
 });
+
+/* ====== EL VIGILANTE DEL LOBI (Pilar 3 · Problema 7) ==========================
+   Antes: si el Lobi se borraba de Supabase, la app no se enteraba. Te quedabas
+   adentro de una sala que ya no existía, chateando con otros fantasmas. 👻
+
+   Ahora: Supabase manda. Si le pregunto por mi Lobi y ya no está, cierro todos
+   los canales, limpio el estado y te devuelvo a Inicio con un aviso.
+
+   REGLA DE ORO: solo expulso cuando la base me responde CLARAMENTE que el Lobi
+   no existe. Si la consulta falla (sin internet, servidor caído), NO expulso a
+   nadie — ante la duda, te quedás adentro. Un falso positivo acá sería peor que
+   el bug original. */
+let verificandoLobi = false;
+
+async function verificarQueMiLobiSigueVivo(){
+  if(verificandoLobi) return;                 // no me pisoteo a mí mismo
+  const l = state.currentLobi;
+  if(!l || !l.id || !l.id.startsWith('real-')) return;  // Lobis de ejemplo: no aplica
+  verificandoLobi = true;
+  try{
+    const dbId = Number(l.id.replace('real-',''));
+    const { data, error } = await sb.from('lobis').select('id').eq('id', dbId).maybeSingle();
+    if(error) return;                         // falló la consulta → NO expulso
+    if(data) return;                          // el Lobi existe → todo bien
+    // Llegué acá: la base respondió bien y el Lobi NO está. Ahora sí.
+    if(state.currentLobi && state.currentLobi.id === l.id){
+      expulsarDeLobiMuerto('⏰ Este Lobi ya terminó');
+    }
+  }catch(e){ /* ante la duda, no expulso */ }
+  finally{ verificandoLobi = false; }
+}
+
+/* Salida de emergencia: apaga todo y te saca de la sala.
+   OJO: a diferencia de finalizeLeave(), esta NO llama a salirDelLobi().
+   No tiene sentido escribir "fulano abandonó el Lobi" ni borrar filas en un
+   Lobi que ya no existe — el robot ya se llevó todo eso. */
+/* Apaga TODO lo del Lobi en esta pestaña: canales, relojes, latido y estado.
+   No toca la base de datos. La usan las tres formas de salir de una sala. */
+function limpiarSalaLocal(){
+  desuscribirseChat();
+  desuscribirseMiembros();
+  desuscribirseDesk();
+  pararRelojEncuestas();
+  pararRelojLobi();
+  pararLatido();
+  pararVigilante();
+  state.currentLobi = null;
+  state.pendingLobi = null;
+  renderActiveLobiSidebar();
+  updateCenterNav();
+}
+
+function expulsarDeLobiMuerto(mensaje){
+  if(!state.currentLobi) return;
+  const lobiId = state.currentLobi.id;
+  delete state.chatLog[lobiId];   // ese historial ya no existe en la base
+  limpiarSalaLocal();
+  navTo('home');
+  toast(mensaje || '⏰ Este Lobi ya terminó');
+}
+
+/* Ronda de respaldo: cada 25 seg reviso igual, por si me perdí el aviso de
+   Realtime (pestaña congelada, internet que se cortó un rato, etc.). */
+let relojVigilante = null;
+
+function arrancarVigilante(){
+  pararVigilante();
+  relojVigilante = setInterval(verificarQueMiLobiSigueVivo, 25000);
+}
+
+function pararVigilante(){
+  if(relojVigilante){ clearInterval(relojVigilante); relojVigilante=null; }
+}
+
+/* Enciende todo lo que necesita una sala real: mensajes, canales en vivo,
+   Lobi Desk, latido, vigilante y relojes. Es el espejo de limpiarSalaLocal().
+   La usan enterLobi() (cuando entrás) y restaurarMiLobiActivo() (cuando
+   volvés y ya estabas adentro). Una sola versión de la verdad. */
+function sintonizarSala(lobiId){
+  cargarMensajesLobi(lobiId);
+  suscribirseChat(lobiId);
+  suscribirseMiembros(lobiId);
+  cargarObjetivos(lobiId);
+  cargarEncuestas(lobiId);
+  suscribirseDesk(lobiId);
+  arrancarRelojEncuestas();
+  arrancarRelojLobi();
+  arrancarLatido();
+  arrancarVigilante();
+}
+
+/* ====== RECUPERAR MI LOBI ACTIVO (Pilar 4 · Problema 8) ======================
+   Antes: state.currentLobi vivía SOLO en la memoria de la pestaña. Si abrías
+   Lobby en otra pestaña, otro navegador u otro dispositivo, la app creía que
+   no estabas en ningún Lobi.
+
+   Ahora: al arrancar le preguntamos a Supabase "¿este usuario ya es miembro de
+   algún Lobi?". Supabase es la fuente de verdad, no la pestaña.
+
+   Importante: NO llamo a unirmeAlLobi(). Ya soy miembro — si la llamara,
+   anunciaría "fulano se ha unido al Lobi" cada vez que abrís una pestaña. 🙈
+   Y NO te meto a la sala de una: te dejo en Inicio con el cartelito
+   "Tu Lobi activo" en la barra lateral, como pediste. */
+async function restaurarMiLobiActivo(){
+  try{
+    if(state.currentLobi) return;                 // ya estoy en uno en esta pestaña
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+
+    /* ¿Estoy anotado como miembro de algún Lobi? */
+    const { data:filas, error:e1 } = await sb.from('miembros')
+      .select('lobi_id')
+      .eq('id_usuario', user.id)
+      .order('created_at', { ascending:false })
+      .limit(1);
+    if(e1 || !filas || filas.length===0) return;  // no estoy en ninguno (o falló)
+
+    const lobiId = filas[0].lobi_id;
+    if(!lobiId || !String(lobiId).startsWith('real-')) return;
+
+    /* Estoy anotado... pero ¿el Lobi todavía existe? */
+    const dbId = Number(String(lobiId).replace('real-',''));
+    const { data:fila, error:e2 } = await sb.from('lobis').select('*').eq('id', dbId).maybeSingle();
+    if(e2) return;                                // falló la consulta → no hago nada
+
+    if(!fila){
+      /* El Lobi murió y quedó mi silla suelta flotando. La limpio, así no
+         "revive" en la próxima carga ni ensucia los conteos. */
+      await sb.from('miembros').delete().eq('lobi_id', lobiId).eq('id_usuario', user.id);
+      return;
+    }
+
+    /* El Lobi vive y yo estoy adentro: restauro todo. */
+    if(state.currentLobi) return;                 // por si entré mientras consultaba
+    state.currentLobi = filaALobi(fila);
+    sintonizarSala(lobiId);
+    cargarMiembros(lobiId);
+    renderActiveLobiSidebar();
+    updateCenterNav();
+    toast('🎮 Seguís en tu Lobi: ' + state.currentLobi.name);
+  }catch(e){ /* si falla, la app arranca normal, sin Lobi */ }
+}
+
+/* ====== SINCRONIZACIÓN ENTRE PESTAÑAS (Pilar 4) =============================
+   Dos pestañas del mismo navegador pueden hablarse por un "canal interno"
+   (BroadcastChannel). Si salgo del Lobi en la pestaña A, la B se entera al
+   instante, sin esperar a Supabase ni adivinar nada.
+
+   ¿Por qué no deducirlo de la base? Porque si mi fila de 'miembros' desaparece
+   hay DOS motivos posibles: salí yo en otra pestaña, o el robot me sacó por
+   error. Confundirlos crearía un bug nuevo. Acá no hay duda: solo aviso cuando
+   yo mismo toqué "Salir". */
+let canalPestanas = null;
+try{
+  if(typeof BroadcastChannel !== 'undefined'){
+    canalPestanas = new BroadcastChannel('lobby-pestanas');
+    canalPestanas.onmessage = function(ev){
+      const msg = ev && ev.data;
+      if(!msg || msg.tipo!=='sali') return;
+      if(state.currentLobi && state.currentLobi.id === msg.lobiId){
+        limpiarSalaLocal();
+        navTo('home');
+        toast('👋 Saliste del Lobi desde otra pestaña');
+      }
+    };
+  }
+}catch(e){ canalPestanas = null; }   // navegador viejo: no pasa nada, sigue todo igual
+
+function avisarAOtrasPestanas(tipo, lobiId){
+  try{ if(canalPestanas) canalPestanas.postMessage({ tipo, lobiId }); }catch(e){}
+}
 
 /* Cuenta cuántos miembros tiene cada Lobi (para mostrar en las tarjetas). */
 async function cargarConteoMiembros(){
@@ -2066,8 +2244,10 @@ async function cerrarLobiPorTiempo(){
   try{
     await sb.from('lobis').delete().eq('id', dbId);
   }catch(e){ /* si falla, igual salimos */ }
-  toast('⏰ El Lobi ha terminado');
-  finalizeLeave();
+  /* Uso la salida de emergencia, no finalizeLeave(): el Lobi acaba de dejar de
+     existir, así que no tiene sentido escribir "fulano abandonó" en él. A los
+     demás miembros los va a sacar su propio vigilante. (Pilar 3) */
+  expulsarDeLobiMuerto('⏰ El Lobi ha terminado');
 }
 
 /* El reloj: cuenta el tiempo, avisa a los 5 min y cierra al llegar a 0. */
@@ -2329,6 +2509,11 @@ function suscribirseListaLobis(){
               avisoMostrado = false;
             }
           }
+          /* Mi Lobi ya no aparece en la lista. OJO: puede ser que se haya
+             borrado de verdad, o que cargarLobisReales() haya fallado y dejado
+             la lista vacía. No adivino: el vigilante le pregunta directo a la
+             base y solo expulsa si confirma que no existe. (Pilar 3) */
+          if(!actualizado) verificarQueMiLobiSigueVivo();
         }
         if(state.view==='home'||state.view==='lobis') navTo(state.view);
       })
@@ -2483,6 +2668,9 @@ async function goApp(view){
   cargarAmistades();          // Problema 11
   suscribirseAmistades();     // Problema 11
   iniciarNotifs();            // Problema 12
+  /* ¿Ya estaba dentro de un Lobi? Se lo pregunto a Supabase, no a esta pestaña.
+     Así funciona en otra pestaña, otro navegador u otro dispositivo. (Pilar 4) */
+  restaurarMiLobiActivo();
 }
 function syncUserUI(){document.getElementById('sb-avatar').src=state.avatarUrl;document.getElementById('sb-username').textContent=state.displayName;}
 
@@ -3303,18 +3491,11 @@ function enterLobi(lobi,created){
   }
   // Si es un Lobi real: cargar mensajes guardados y sintonizar el canal en vivo
   if(esReal){
-    cargarMensajesLobi(c.id);
-    suscribirseChat(c.id);
-    // Miembros en la nube: me uno, cargo la lista real y me sintonizo
+    // Me anoto como miembro en la nube y cargo la lista real
     unirmeAlLobi(c.id).then(()=>{ cargarMiembros(c.id); });
-    suscribirseMiembros(c.id);
-    arrancarLatido();   // empiezo a avisar "sigo acá" cada 30 seg (Bug B)
-    // Lobi Desk: cargo los objetivos y encuestas, y me sintonizo (Problema 6)
-    cargarObjetivos(c.id);
-    cargarEncuestas(c.id);
-    suscribirseDesk(c.id);
-    arrancarRelojEncuestas();
-    arrancarRelojLobi();
+    // Y enciendo la sala: mensajes, canales en vivo, Desk, relojes,
+    // latido (Bug B) y vigilante (Pilar 3). Todo junto en un solo lugar.
+    sintonizarSala(c.id);
   }
   renderActiveLobiSidebar();updateCenterNav();
   /* recordatorio: si tengo juegos sin completar, marco el menú Perfil y aviso */
@@ -3334,14 +3515,12 @@ function confirmLeave(){
 }
 function finalizeLeave(){
   const lobiId = state.currentLobi ? state.currentLobi.id : null;
-  desuscribirseChat();
-  desuscribirseMiembros();
-  desuscribirseDesk();
-  pararRelojEncuestas();
-  pararRelojLobi();
-  pararLatido();   // dejo de latir: ya no estoy en el Lobi (Bug B)
-  if(lobiId && lobiId.startsWith('real-')) salirDelLobi(lobiId);
-  state.currentLobi=null;state.pendingLobi=null;renderActiveLobiSidebar();updateCenterNav();navTo('home');
+  limpiarSalaLocal();   // apago canales, relojes, latido y vigilante
+  if(lobiId && lobiId.startsWith('real-')){
+    salirDelLobi(lobiId);                   // me borro de la base
+    avisarAOtrasPestanas('sali', lobiId);   // y aviso a mis otras pestañas (Pilar 4)
+  }
+  navTo('home');
 }
 function renderActiveLobiSidebar(){
   const slot=document.getElementById('sb-active-lobi-slot');
