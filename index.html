@@ -1705,12 +1705,69 @@ function calcCompat(otro){
 }
 
 /* Lee los usuarios reales de la tabla perfiles (menos yo mismo) y les calcula compatibilidad. */
+/* ====== DIRECTORIO DE PERFILES (Problema 6) =================================
+   OJO a la diferencia, que es la causa del bug de "no veo mi propia foto":
+
+     realPlayers        = "a quién te recomiendo"  → te EXCLUYE a vos, y está bien
+     directorioPerfiles = "quién es quién"         → te INCLUYE a vos
+
+   Antes había una sola lista y se usaba para las dos cosas. Cuando la sala del
+   Lobi buscaba tu foto en la lista de recomendados, no te encontraba nunca —
+   porque esa lista se arma justamente para mostrarte a los DEMÁS. Era como
+   buscar tu propia foto en un anuario titulado "tus compañeros". */
+let directorioPerfiles = {};   // id_usuario -> { nombre, nick, avatarFile, estilo, pais }
+
+/* LA ÚNICA FUENTE DE VERDAD para la foto de alguien.
+   Busca en tres lugares, del más confiable al menos:
+     1. Si sos vos, lo que ya cargó tu propio perfil (siempre está al día)
+     2. El directorio completo
+     3. La lista de recomendados, por si el directorio todavía no llegó
+   Devuelve el NOMBRE DEL ARCHIVO, no el link: resolverAvatares() lo convierte. */
+function fotoDeUsuario(id_usuario){
+  if(!id_usuario) return null;
+  if(miId && id_usuario === miId && state.avatarFile) return state.avatarFile;
+  const p = directorioPerfiles[id_usuario];
+  if(p && p.avatarFile) return p.avatarFile;
+  const r = (realPlayers||[]).find(x => x.id_usuario === id_usuario);
+  return (r && r.avatarFile) ? r.avatarFile : null;
+}
+
+/* La misma búsqueda pero POR NOMBRE. Hace falta porque los mensajes privados y
+   las solicitudes de amistad guardan nombres (de_nombre, para_nombre), no ids.
+   Es la misma limitación que nos apareció en la política RLS de 'privados':
+   algún día conviene guardar el id en vez del nombre. (Zonas B y C) */
+function fotoPorNombre(nombre){
+  if(!nombre) return null;
+  if(nombre === state.displayName && state.avatarFile) return state.avatarFile;
+  for(const id in directorioPerfiles){
+    const p = directorioPerfiles[id];
+    if(p && (p.nombre === nombre || p.nick === nombre)) return p.avatarFile || null;
+  }
+  const r = (realPlayers||[]).find(x => x.name === nombre);
+  return (r && r.avatarFile) ? r.avatarFile : null;
+}
+
 async function cargarUsuariosReales(){
   try {
     const { data:{ user } } = await sb.auth.getUser();
     const { data, error } = await sb.from('perfiles').select('*');
     if(error) throw error;
     if(!data) { realPlayers=[]; return; }
+
+    /* El directorio se arma con TODOS, sin filtrar. Va antes del filtro de
+       abajo justamente para que yo también esté adentro. */
+    directorioPerfiles = {};
+    data.forEach(p => {
+      if(!p.id_usuario) return;
+      directorioPerfiles[p.id_usuario] = {
+        nombre: p.nombre || p.nick || 'Jugador',
+        nick: p.nick || p.nombre || 'jugador',
+        avatarFile: p.avatar || null,
+        estilo: p.estilo || 'Chill',
+        pais: p.pais || 'Costa Rica'
+      };
+    });
+
     realPlayers = data
       .filter(p => !user || p.id_usuario !== user.id)  // no me recomiendo a mí mismo
       .map(p => ({
@@ -1932,14 +1989,15 @@ async function cargarMiembros(lobiId){
     if(error) throw error;
     if(!state.currentLobi || state.currentLobi.id!==lobiId) return;
     state.currentLobi.members = (data||[]).map(m=>{
-      const perfil = (realPlayers||[]).find(p=>p.id_usuario===m.id_usuario);
       return {
         name: m.nombre || 'Jugador',
         role: m.estilo || 'Jugador',
         seed: m.nombre || 'user',
         bg: 'c84dff',
         compat: 90,
-        avatarFile: perfil ? perfil.avatarFile : null,
+        /* Antes buscaba en realPlayers, que me excluye a mí mismo: por eso veía
+           las fotos de todos menos la mía. Ahora usa la fuente única. (Zona A) */
+        avatarFile: fotoDeUsuario(m.id_usuario),
         id_usuario_real: m.id_usuario,
         isMe: user && m.id_usuario===user.id
       };
@@ -2661,11 +2719,13 @@ const av=(seed,bg)=>`https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${seed
 /* Avatar de un jugador: su foto real si la tiene, o el robot generado.
    Como la foto necesita un link firmado (asíncrono), devuelvo el robot con
    un data-avatarfile; resolverAvatares() lo reemplaza por la foto cuando llega. */
-function avatarDe(p){
-  if(p && p.avatarFile){
-    return `<img class="av" src="${av(p.seed||p.name,p.bg)}" data-avatarfile="${escapeHtml(p.avatarFile)}">`;
-  }
-  return `<img class="av" src="${av(p?p.seed||p.name:'user',p?p.bg:'c84dff')}">`;
+function avatarDe(p, extra){
+  const src = av(p ? (p.seed||p.name) : 'user', p ? p.bg : 'c84dff');
+  /* Si me pasan 'extra', reemplaza al class="av" por defecto. Sirve para los
+     lugares que necesitan su propio tamaño, como el encabezado del chat. */
+  const attrs = extra ? (' ' + extra) : ' class="av"';
+  const etiqueta = (p && p.avatarFile) ? ` data-avatarfile="${escapeHtml(p.avatarFile)}"` : '';
+  return `<img src="${src}"${attrs}${etiqueta}>`;
 }
 
 /* Busca los avatares con foto real pendiente y les pone el link firmado. */
@@ -2680,7 +2740,21 @@ async function resolverAvatares(){
 const compatClass=c=>c>=85?'high':c>=65?'mid':'';
 const compatLabel=c=>c>=85?'Muy compatible':c>=65?'Compatible':'Poco compatible';
 const compatColor=c=>c>=85?'var(--color-success)':c>=65?'var(--color-secondary)':'var(--color-muted)';
-const findPlayer=name=>(realPlayers||[]).find(p=>p.name===name)||players.find(p=>p.name===name)||{name,game:'Minecraft',compat:90,seed:name,bg:'c84dff',mode:'Survival',style:'Chill',level:'Medio',goals:['Construir'],rating:4.5,ratings:10};
+/* findPlayer es el buscador central por nombre: lo usan los mensajes privados,
+   las solicitudes de amistad y la lista de amigos. Antes devolvía objetos SIN
+   foto en dos de los tres casos (los jugadores de ejemplo y el objeto inventado
+   de más abajo), y por eso salía el robot aunque la persona tuviera foto.
+   Ahora, si el resultado viene sin foto, se la buscamos. (Zonas B y C) */
+const findPlayer=name=>{
+  const hallado=(realPlayers||[]).find(p=>p.name===name)||players.find(p=>p.name===name);
+  if(hallado){
+    if(hallado.avatarFile) return hallado;
+    const foto=fotoPorNombre(name);
+    /* copia, no toco el original: realPlayers y players se comparten */
+    return foto ? Object.assign({}, hallado, {avatarFile:foto}) : hallado;
+  }
+  return {name,game:'Minecraft',compat:90,seed:name,bg:'c84dff',mode:'Survival',style:'Chill',level:'Medio',goals:['Construir'],rating:4.5,ratings:10,avatarFile:fotoPorNombre(name)};
+};
 const starStr=r=>{const f=Math.round(r);return '★'.repeat(f)+'☆'.repeat(5-f);};
 
 const dms={
@@ -2787,6 +2861,10 @@ async function goApp(view){
   /* Cargamos los usuarios reales en segundo plano y refrescamos la vista cuando lleguen */
   cargarUsuariosReales().then(()=>{
     if(state.view==='home'||state.view==='search') navTo(state.view);
+    /* El directorio de fotos llega unos instantes después que la sala. Si ya
+       estoy adentro de un Lobi, recargo los miembros para que aparezcan las
+       fotos reales en vez de los robots. (Problema 6) */
+    if(state.currentLobi && state.currentLobi.id.startsWith('real-')) cargarMiembros(state.currentLobi.id);
   });
   Promise.all([cargarLobisReales(), cargarConteoMiembros()]).then(()=>{
     if(state.view==='home'||state.view==='lobis') navTo(state.view);
@@ -3208,7 +3286,7 @@ const views={
     const reqHtml = recibidas.length
       ? recibidas.map(a=>{
           const p=findPlayer(a.de_nombre);
-          return `<div class="player-card"><img class="av" src="${av(p.seed,p.bg)}">
+          return `<div class="player-card">${avatarDe(p)}
             <div class="pinfo"><div class="pname">${escapeHtml(a.de_nombre)}</div><div class="pgame">Quiere ser tu amigo</div></div>
             <div class="pactions">
               <button class="mini-btn" style="border-color:var(--color-success)" title="Aceptar" onclick="aceptarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
@@ -3221,7 +3299,7 @@ const views={
       ? `<div class="sec-head"><div class="sec-title">Enviadas</div></div><div class="player-grid">` +
         enviadas.map(a=>{
           const p=findPlayer(a.para_nombre);
-          return `<div class="player-card"><img class="av" src="${av(p.seed,p.bg)}">
+          return `<div class="player-card">${avatarDe(p)}
             <div class="pinfo"><div class="pname">${escapeHtml(a.para_nombre)}</div><div class="pgame">Esperando respuesta…</div></div>
             <div class="pactions"><button class="mini-btn" title="Cancelar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-muted)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div></div>`;
         }).join('') + `</div>`
@@ -3246,13 +3324,13 @@ const views={
 
 function messagesView(){
   const names=Object.keys(dms);
-  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':(last.invite?'🎮 Invitación a un Lobi':escapeHtml(last.text||''))}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer"><img class="av" src="${av(p.seed,p.bg)}"><div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
+  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':(last.invite?'🎮 Invitación a un Lobi':escapeHtml(last.text||''))}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer">${avatarDe(p)}<div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
   if(!openDM)return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div><div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${list}</div>`;
   const p=findPlayer(openDM);
   const thread=dms[openDM].map(m=>renderDMmsg(m,p)).join('');
   const canInvite=state.currentLobi&&state.currentLobi.members.length<5&&friends.includes(openDM)&&!state.currentLobi.members.some(mm=>mm.name===openDM);
   return `<div class="dm-open">
-    <div class="dm-open-head"><button class="mini-btn" onclick="cerrarDM()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><img src="${av(p.seed,p.bg)}" style="width:42px;height:42px;border-radius:50%"><div style="flex:1"><div style="font-weight:700;font-size:16px">${openDM}</div><div style="font-size:12px;color:var(--color-success)">En línea</div></div>
+    <div class="dm-open-head"><button class="mini-btn" onclick="cerrarDM()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>${avatarDe(p,'style="width:42px;height:42px;border-radius:50%"')}<div style="flex:1"><div style="font-weight:700;font-size:16px">${openDM}</div><div style="font-size:12px;color:var(--color-success)">En línea</div></div>
       ${canInvite?`<button class="btn btn-primary btn-sm" onclick="sendInvite('${openDM}')">+ Invitar a mi Lobi</button>`:''}</div>
     <div id="dm-thread" class="dm-thread">${thread}</div>
     <div class="chat-input" style="border:none;padding:14px 0 0">
@@ -3289,7 +3367,7 @@ function renderDMmsg(m,p){
     acciones = `<div class="msg-acts">${editar}<button class="msg-act del" title="Borrar" onclick="pedirBorrarPrivado(${m.id})">🗑️</button></div>`;
   }
 
-  return `<div class="msg ${m.from==='me'?'me':''}">${m.from==='me'?'':`<img class="av" src="${av(p.seed,p.bg)}">`}<div class="bubble-wrap">${body}</div>${acciones}</div>`;
+  return `<div class="msg ${m.from==='me'?'me':''}">${m.from==='me'?'':avatarDe(p)}<div class="bubble-wrap">${body}</div>${acciones}</div>`;
 }
 /* Minimiza o expande la barra lateral (solo iconos ↔ iconos + texto). */
 function toggleSidebar(){
@@ -4764,6 +4842,11 @@ async function applyCrop(){
     // link público permanente para mostrarlo ya
     const link = urlAvatar(nombre);
     if(link){ state.avatarUrl=link; state.avatarFile=nombre; syncUserUI(); }
+
+    /* Que el cambio se vea YA en toda la app, sin recargar (Problema 6):
+       me actualizo en el directorio y refresco la sala si estoy en un Lobi. */
+    if(miId && directorioPerfiles[miId]) directorioPerfiles[miId].avatarFile = nombre;
+    if(state.currentLobi && state.currentLobi.id.startsWith('real-')) cargarMiembros(state.currentLobi.id);
 
     toast('✅ Foto de perfil actualizada');
   }catch(e){
