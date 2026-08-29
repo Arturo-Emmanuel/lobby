@@ -2319,11 +2319,15 @@ async function cargarConteoMiembros(){
     (data||[]).forEach(m=>{
       conteoMiembros[m.lobi_id]=(conteoMiembros[m.lobi_id]||0)+1;
       if(!miembrosPorLobi[m.lobi_id]) miembrosPorLobi[m.lobi_id]=[];
+      /* Guardo el id_usuario, NO la foto. La foto se pregunta al dibujar.
+         Si la guardara acá y el directorio todavía no hubiera llegado (las dos
+         cargas salen en paralelo), quedaría un robot congelado hasta recargar
+         la página. Guardar el "quién" y no el "cómo se ve" evita esa carrera. */
       miembrosPorLobi[m.lobi_id].push({
         name: m.nombre || 'Jugador',
         seed: m.nombre || 'user',
         bg: 'c84dff',
-        avatarFile: fotoDeUsuario(m.id_usuario)
+        id_usuario: m.id_usuario
       });
     });
   }catch(e){ conteoMiembros={}; miembrosPorLobi={}; }
@@ -2877,7 +2881,12 @@ async function goApp(view){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById('app').classList.add('active');syncUserUI();navTo(view);
   /* Cargamos los usuarios reales en segundo plano y refrescamos la vista cuando lleguen */
   cargarUsuariosReales().then(()=>{
-    if(state.view==='home'||state.view==='search') navTo(state.view);
+    /* Cuando llega el directorio de fotos, redibujo la pantalla que estés
+       viendo para que aparezcan las caras. Incluyo 'lobis', 'friends' y
+       'profile', que antes se quedaban con robots hasta recargar.
+       NO incluyo 'create' ni 'settings': ahí podrías estar llenando un
+       formulario y redibujar te borraría lo escrito. */
+    if(['home','search','lobis','friends','profile'].includes(state.view)) navTo(state.view);
     /* El directorio de fotos llega unos instantes después que la sala. Si ya
        estoy adentro de un Lobi, recargo los miembros para que aparezcan las
        fotos reales en vez de los robots. (Problema 6) */
@@ -3167,7 +3176,13 @@ function lobiCard(l){
   /* Para Lobis reales las caras vienen de la nube; para los de ejemplo, de su
      propia lista. Así una tarjeta real muestra gente real. (Zona D) */
   const gente = l.real ? (miembrosPorLobi[l.id]||[]) : l.members;
-  const avs=gente.slice(0,3).map(m=>avatarDe(m,'')).join('');
+  /* La foto se resuelve ACÁ, al dibujar. Así, aunque el directorio haya llegado
+     después de cargar los Lobis, el próximo redibujado ya sale con las caras
+     correctas y no hace falta recargar la página. */
+  const avs=gente.slice(0,3).map(m=>avatarDe({
+    seed:m.seed, bg:m.bg,
+    avatarFile: m.id_usuario ? fotoDeUsuario(m.id_usuario) : (m.avatarFile||null)
+  },'')).join('');
   const more=gente.length>3?`<span class="more">+${gente.length-3}</span>`:'';
   const gid=l.game||'minecraft';
   const fondo=fondoDeLobi(l);
