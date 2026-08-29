@@ -1550,7 +1550,7 @@ async function cargarAmistades(){
 
     renderBadges();
     /* Repinto la pantalla actual si muestra amistades */
-    if(state.view === 'friends' || state.view === 'search' || state.view === 'profile') navTo(state.view);
+    if(state.view === 'friends' || state.view === 'search' || state.view === 'profile') refrescarVista();
   }catch(e){
     console.error('[amistades] excepción:', e);
     toast('⚠️ Falló la carga de amistades: ' + e.message);
@@ -2725,12 +2725,12 @@ function suscribirseListaLobis(){
              base y solo expulsa si confirma que no existe. (Pilar 3) */
           if(!actualizado) verificarQueMiLobiSigueVivo();
         }
-        if(state.view==='home'||state.view==='lobis') navTo(state.view);
+        if(state.view==='home'||state.view==='lobis') refrescarVista();
       })
     .on('postgres_changes', { event:'*', schema:'public', table:'miembros' },
       async ()=>{
         await cargarConteoMiembros();
-        if(state.view==='home'||state.view==='lobis') navTo(state.view);
+        if(state.view==='home'||state.view==='lobis') refrescarVista();
       })
     .subscribe();
 }
@@ -2886,14 +2886,14 @@ async function goApp(view){
        'profile', que antes se quedaban con robots hasta recargar.
        NO incluyo 'create' ni 'settings': ahí podrías estar llenando un
        formulario y redibujar te borraría lo escrito. */
-    if(['home','search','lobis','friends','profile'].includes(state.view)) navTo(state.view);
+    if(['home','search','lobis','friends','profile'].includes(state.view)) refrescarVista();
     /* El directorio de fotos llega unos instantes después que la sala. Si ya
        estoy adentro de un Lobi, recargo los miembros para que aparezcan las
        fotos reales en vez de los robots. (Problema 6) */
     if(state.currentLobi && state.currentLobi.id.startsWith('real-')) cargarMiembros(state.currentLobi.id);
   });
   Promise.all([cargarLobisReales(), cargarConteoMiembros()]).then(()=>{
-    if(state.view==='home'||state.view==='lobis') navTo(state.view);
+    if(state.view==='home'||state.view==='lobis') refrescarVista();
   });
   /* Nos sintonizamos a la lista de Lobis: los nuevos aparecen solos (Problema 1) */
   suscribirseListaLobis();
@@ -3547,7 +3547,7 @@ function saveGameDrawer(){
   closeGameDrawer();
   toast('✅ Juego actualizado');
   updateProfileAlert();
-  if(state.view==='profile'&&!state._profileTarget)navTo('profile');
+  if(state.view==='profile'&&!state._profileTarget)refrescarVista();
 }
 function closeGameDrawer(){
   document.getElementById('game-drawer').classList.remove('active');
@@ -3570,7 +3570,7 @@ function addGame(gid){
   closeModal('modal-add-game');
   toast('✅ Juego agregado. ¡Complétalo!');
   updateProfileAlert();
-  if(state.view==='profile')navTo('profile');
+  if(state.view==='profile')refrescarVista();
 }
 /* alerta en la barra lateral del menú Perfil */
 function updateProfileAlert(){
@@ -4932,6 +4932,23 @@ function emparejarConJuego(gid){
 }
 
 /* ============ ROUTER ============ */
+/* ====== REFRESCAR vs NAVEGAR (Problema 2) ===================================
+   Son dos cosas distintas y la app las trataba igual:
+
+     NAVEGAR   = el usuario tocó algo. Si toca "Perfil", quiere el SUYO.
+     REFRESCAR = llegaron datos nuevos y hay que repintar lo MISMO que ya mirabas.
+
+   Cuando refrescás con navTo('profile'), la línea de abajo borra
+   state._profileTarget y te manda a tu propio perfil. Por eso, estando en el
+   perfil de otra persona, a los pocos segundos te sacaba de ahí: un reloj
+   refrescaba las amistades cada 20 segundos y eso contaba como "navegar".
+
+   refrescarVista() repinta sin cambiar de quién es el perfil que estás viendo. */
+function refrescarVista(){
+  navTo._keepTarget = true;
+  navTo(state.view);
+}
+
 function navTo(view){
   state.view=view;closePopover();
   /* si navego a "profile" por el menú (no por ver a otro), limpio el target para ver MI perfil */
