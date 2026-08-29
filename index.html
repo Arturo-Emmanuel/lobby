@@ -1863,7 +1863,7 @@ async function cargarMensajesLobi(lobiId){
     if(error) throw error;
     state.chatLog[lobiId] = (data||[]).map(filaAMensaje);
     const box=document.getElementById('chat-scroll');
-    if(box){ box.innerHTML=renderChat(); scrollChat(); }
+    if(box){ box.innerHTML=renderChat(); resolverAvatares(); scrollChat(); }
   } catch(e){ /* si falla, el chat queda vacío, no rompe */ }
 }
 
@@ -1874,7 +1874,7 @@ function suscribirseChat(lobiId){
   /* Repinta el chat si estoy viendo este Lobi. */
   const repintar = ()=>{
     const box=document.getElementById('chat-scroll');
-    if(box && state.currentLobi && state.currentLobi.id===lobiId){ box.innerHTML=renderChat(); scrollChat(); }
+    if(box && state.currentLobi && state.currentLobi.id===lobiId){ box.innerHTML=renderChat(); resolverAvatares(); scrollChat(); }
   };
 
   canalChat = sb.channel('chat-'+lobiId)
@@ -2303,13 +2303,30 @@ function avisarAOtrasPestanas(tipo, lobiId){
 }
 
 /* Cuenta cuántos miembros tiene cada Lobi (para mostrar en las tarjetas). */
+/* Quiénes están en cada Lobi, para las tarjetas vistas desde afuera (Zona D).
+   Antes las tarjetas de Lobis reales no mostraban ninguna cara: el objeto que
+   arma filaALobi() trae members:[] (los miembros viven en otra tabla). Ya
+   estábamos leyendo esta tabla para el contador, así que de paso guardamos
+   los primeros de cada Lobi con su foto. Sin consultas de más. */
+let miembrosPorLobi = {};
+
 async function cargarConteoMiembros(){
   try{
-    const { data, error } = await sb.from('miembros').select('lobi_id');
+    const { data, error } = await sb.from('miembros').select('lobi_id, id_usuario, nombre').order('created_at',{ascending:true});
     if(error) throw error;
     conteoMiembros={};
-    (data||[]).forEach(m=>{ conteoMiembros[m.lobi_id]=(conteoMiembros[m.lobi_id]||0)+1; });
-  }catch(e){ conteoMiembros={}; }
+    miembrosPorLobi={};
+    (data||[]).forEach(m=>{
+      conteoMiembros[m.lobi_id]=(conteoMiembros[m.lobi_id]||0)+1;
+      if(!miembrosPorLobi[m.lobi_id]) miembrosPorLobi[m.lobi_id]=[];
+      miembrosPorLobi[m.lobi_id].push({
+        name: m.nombre || 'Jugador',
+        seed: m.nombre || 'user',
+        bg: 'c84dff',
+        avatarFile: fotoDeUsuario(m.id_usuario)
+      });
+    });
+  }catch(e){ conteoMiembros={}; miembrosPorLobi={}; }
 }
 
 /* ====== ENCUESTAS DEL LOBI EN LA NUBE (Problema 6) ====== */
@@ -2519,7 +2536,7 @@ function arrancarRelojEncuestas(){
         if(!state.chatLog[lobiId]) state.chatLog[lobiId]=[];
         state.chatLog[lobiId].push({ type:'join', text: p.resultMsg });
         const box = document.getElementById('chat-scroll');
-        if(box){ box.innerHTML=renderChat(); scrollChat(); }
+        if(box){ box.innerHTML=renderChat(); resolverAvatares(); scrollChat(); }
         cambio = true;
       }
     });
@@ -3102,10 +3119,11 @@ function renderNotifPanel(){
   if(!state.notifs || state.notifs.length===0) body='<div class="notif-empty">No tenés notificaciones todavía 🎮</div>';
   else body=state.notifs.map((n,i)=>`
     <div class="notif-item ${n.unread?'unread':''}" onclick="abrirNotif(${i})">
-      <img class="nicon" src="${av(n.seed,n.bg)}">
+      ${avatarDe({seed:n.seed,bg:n.bg,avatarFile:fotoPorNombre(n.from)},'class="nicon"')}
       <div class="ntext">${n.text}<div class="ntime">${n.time}</div></div>
       ${n.unread?'<span class="ndot"></span>':''}</div>`).join('');
   p.innerHTML=`<div class="notif-head"><h4>Notificaciones</h4><span class="clear" onclick="marcarLeidas()">Marcar leídas</span></div>${body}`;
+  resolverAvatares();   // el panel de notificaciones tampoco pasa por navTo()
 }
 
 /* Al tocar una notificación, voy al lugar que corresponde. */
@@ -3146,8 +3164,11 @@ function gameTag(gid,extra){
 function lobiCard(l){
   // Para Lobis reales, el conteo viene de la nube (Problema 2)
   const total = l.real ? (conteoMiembros[l.id]||0) : l.members.length;
-  const avs=l.members.slice(0,3).map(m=>`<img src="${av(m.seed,m.bg)}">`).join('');
-  const more=l.members.length>3?`<span class="more">+${l.members.length-3}</span>`:'';
+  /* Para Lobis reales las caras vienen de la nube; para los de ejemplo, de su
+     propia lista. Así una tarjeta real muestra gente real. (Zona D) */
+  const gente = l.real ? (miembrosPorLobi[l.id]||[]) : l.members;
+  const avs=gente.slice(0,3).map(m=>avatarDe(m,'')).join('');
+  const more=gente.length>3?`<span class="more">+${gente.length-3}</span>`:'';
   const gid=l.game||'minecraft';
   const fondo=fondoDeLobi(l);
   const coverStyle = fondo.tipo==='img'
@@ -3438,7 +3459,7 @@ function fullProfileView(name){
             nick:(bruto.name||'jugador').toLowerCase(), ...bruto };
   if(!Array.isArray(p.goals)) p.goals=['Jugar'];
   const dash=2*Math.PI*33;const off=dash*(1-p.compat/100);
-  return `<div class="profile-banner"></div><div class="profile-head"><img class="pav" src="${av(p.seed,p.bg)}"><div class="pmeta"><h2>${escapeHtml(p.name)}</h2><div class="psub">🇨🇷 ${escapeHtml(p.pais)} · @${escapeHtml(p.nick)}</div></div>
+  return `<div class="profile-banner"></div><div class="profile-head">${avatarDe(p,'class="pav"')}<div class="pmeta"><h2>${escapeHtml(p.name)}</h2><div class="psub">🇨🇷 ${escapeHtml(p.pais)} · @${escapeHtml(p.nick)}</div></div>
     <div class="profile-actions"><button class="btn btn-secondary btn-sm" onclick="openConversation('${p.name}')"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg> Mensaje</button>${botonAmistad(p.name)}</div></div>
     <div class="compat-banner"><div class="compat-ring"><svg width="78" height="78"><circle cx="39" cy="39" r="33" fill="none" stroke="#2A2A35" stroke-width="7"/><circle cx="39" cy="39" r="33" fill="none" stroke="${compatColor(p.compat)}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${dash}" stroke-dashoffset="${off}"/></svg><span class="pct">${p.compat}%</span></div>
       <div class="ctext"><h4 style="color:${compatColor(p.compat)}">${compatLabel(p.compat)} contigo</h4><p>Comparten modo ${p.mode} y estilo ${p.style}. ${p.compat>=85?'Encajarían muy bien en un Lobi.':'Podrían jugar bien juntos.'}</p></div></div>
@@ -3678,11 +3699,14 @@ async function tryJoin(lobiId){
   if(l.real){
     try{
       const { data } = await sb.from('miembros').select('*').eq('lobi_id',lobiId).order('created_at',{ascending:true});
-      miembros = (data||[]).map(m=>({name:m.nombre||'Jugador', role:m.estilo||'Jugador', seed:m.nombre||'user', bg:'c84dff', compat:90}));
+      /* Acá tenemos el id_usuario a mano: lo aprovechamos para traer la foto
+         real de cada uno antes de que decidas si entrás. */
+      miembros = (data||[]).map(m=>({name:m.nombre||'Jugador', role:m.estilo||'Jugador', seed:m.nombre||'user', bg:'c84dff', compat:90, avatarFile:fotoDeUsuario(m.id_usuario)}));
     }catch(e){ miembros=[]; }
   }
-  const lista=miembros.map(m=>`<div class="join-p"><img class="av" src="${av(m.seed,m.bg)}"><div class="jp-meta"><div class="jp-name">${m.name}</div><div class="jp-role">${m.role}</div></div><div class="jp-compat" style="color:${compatColor(m.compat)}">${m.compat}%</div></div>`).join('');
+  const lista=miembros.map(m=>`<div class="join-p">${avatarDe(m)}<div class="jp-meta"><div class="jp-name">${m.name}</div><div class="jp-role">${m.role}</div></div><div class="jp-compat" style="color:${compatColor(m.compat)}">${m.compat}%</div></div>`).join('');
   document.getElementById('join-players-list').innerHTML=lista||'<div style="color:var(--color-muted);font-size:13px;padding:8px 0">Todavía no hay nadie aquí. ¡Sé el primero en entrar!</div>';
+  resolverAvatares();   // esta ventana tampoco pasa por navTo()
   openModal('modal-join');
 }
 function confirmJoin(){closeModal('modal-join');if(state.pendingLobi)enterLobi(state.pendingLobi,false);}
@@ -3743,10 +3767,15 @@ function startCreate(){createStep='game';createGame=null;navTo('create');}
 /* ============ CALIFICAR ============ */
 let ratingData=[];
 function buildRating(others){
-  ratingData=others.map(o=>({name:o.name,seed:o.seed,bg:o.bg,role:o.role,stars:0}));
+  /* Antes esta copia se dejaba avatarFile afuera, y por eso la ventana de
+     calificar salía siempre con robots aunque los miembros tuvieran foto. */
+  ratingData=others.map(o=>({name:o.name,seed:o.seed,bg:o.bg,role:o.role,avatarFile:o.avatarFile||null,stars:0}));
   document.getElementById('rate-list').innerHTML=ratingData.map((o,i)=>`
-    <div class="rate-player"><img class="av" src="${av(o.seed,o.bg)}"><div class="rp-meta"><div class="rp-name">${o.name}</div><div class="rp-role">${o.role}</div></div>
+    <div class="rate-player">${avatarDe(o)}<div class="rp-meta"><div class="rp-name">${o.name}</div><div class="rp-role">${o.role}</div></div>
     <div class="rate-stars" data-idx="${i}">${[1,2,3,4,5].map(s=>`<span class="star" data-s="${s}" onclick="setStar(${i},${s})">★</span>`).join('')}</div></div>`).join('');
+  /* Esta ventana no se dibuja con navTo(), así que resolverAvatares() no corre
+     solo. Hay que llamarlo o el post-it se queda sin canjear. */
+  resolverAvatares();
 }
 function setStar(idx,s){
   ratingData[idx].stars=s;
@@ -3773,8 +3802,9 @@ function openInviteFromRoom(){
   } else if(invitable.length===0){
     cont.innerHTML='<div class="side-empty" style="max-width:none;margin-top:8px">Todos tus amigos ya están en el Lobi. 🎉</div>';
   } else {
-    cont.innerHTML=invitable.map(f=>{const p=findPlayer(f);return `<div class="rate-player" style="cursor:pointer" onclick="sendInvite('${f}');closeModal('modal-invite')"><img class="av" src="${av(p.seed,p.bg)}"><div class="rp-meta"><div class="rp-name">${escapeHtml(f)}</div><div class="rp-role">${escapeHtml(p.game)}</div></div><span style="color:var(--color-primary);font-weight:600;font-size:13px">Invitar →</span></div>`;}).join('');
+    cont.innerHTML=invitable.map(f=>{const p=findPlayer(f);return `<div class="rate-player" style="cursor:pointer" onclick="sendInvite('${f}');closeModal('modal-invite')">${avatarDe(p)}<div class="rp-meta"><div class="rp-name">${escapeHtml(f)}</div><div class="rp-role">${escapeHtml(p.game)}</div></div><span style="color:var(--color-primary);font-weight:600;font-size:13px">Invitar →</span></div>`;}).join('');
   }
+  resolverAvatares();   // ventana propia: no pasa por navTo()
   openModal('modal-invite');
 }
 /* Invitar a un amigo: la invitación viaja como un privado especial (Problema 10).
@@ -3839,7 +3869,7 @@ function roomView(){
     const esLider = l.id_creador && m.id_usuario_real && m.id_usuario_real===l.id_creador;
     const corona = esLider ? ` <svg class="lider-crown" fill="#fbbf24" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 2h14v2H5v-2z"/></svg>` : '';
     const rol = esLider ? 'Líder del Lobi' : escapeHtml(m.role);
-    return `<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${m.avatarFile?`<img class="av" src="${av(m.seed,m.bg)}" data-avatarfile="${escapeHtml(m.avatarFile)}">`:`<img class="av" src="${av(m.seed,m.bg)}">`}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}${corona}</div><div class="mrole ${esLider?'mrole-lider':''}">${rol}</div></div></div>`;
+    return `<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${avatarDe(m)}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}${corona}</div><div class="mrole ${esLider?'mrole-lider':''}">${rol}</div></div></div>`;
   }).join('');
   const libres = 5 - l.members.length;
   let inviteSlot = '';
@@ -4346,7 +4376,9 @@ function renderChat(){
       acciones = `<div class="msg-acts">${editar}<button class="msg-act del" title="Borrar" onclick="pedirBorrarMensaje(${e.id})">🗑️</button></div>`;
     }
 
-    return `<div class="msg ${e.me?'me':''}">${e.me?'':`<img class="av" src="${av(e.seed,e.bg)}">`}<div class="bubble-wrap"><div class="who"><b>${e.me?'Tú':escapeHtml(e.who)}</b></div>${body}</div>${acciones}</div>`;
+    /* El chat guarda el nombre del autor, no su id: por eso la búsqueda por
+       nombre. Los mensajes míos no llevan avatar, así que no hace falta. */
+    return `<div class="msg ${e.me?'me':''}">${e.me?'':avatarDe({seed:e.seed,bg:e.bg,avatarFile:fotoPorNombre(e.who)})}<div class="bubble-wrap"><div class="who"><b>${e.me?'Tú':escapeHtml(e.who)}</b></div>${body}</div>${acciones}</div>`;
   }).join('');
 }
 /* ====== IMÁGENES EN LA NUBE — Supabase Storage (Problema 4) ======
@@ -4442,6 +4474,7 @@ function empezarEdicion(id){
   const box=document.getElementById('chat-scroll');
   if(box){
     box.innerHTML=renderChat();
+    resolverAvatares();
     const f=document.getElementById('edit-field');
     if(f){ f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
   }
@@ -4451,7 +4484,7 @@ function empezarEdicion(id){
 function cancelarEdicion(){
   editandoId = null;
   const box=document.getElementById('chat-scroll');
-  if(box){ box.innerHTML=renderChat(); scrollChat(); }
+  if(box){ box.innerHTML=renderChat(); resolverAvatares(); scrollChat(); }
 }
 
 /* Guardo el texto nuevo. La base marca 'editado' y el tiempo real avisa a todos. */
@@ -4472,7 +4505,7 @@ async function guardarEdicion(){
   }catch(e){
     toast('⚠️ No se pudo editar: ' + e.message);
     const box=document.getElementById('chat-scroll');
-    if(box){ box.innerHTML=renderChat(); scrollChat(); }
+    if(box){ box.innerHTML=renderChat(); resolverAvatares(); scrollChat(); }
   }
 }
 
@@ -4595,7 +4628,7 @@ async function sendMsg(){
   } else {
     // Lobi de ejemplo: comportamiento local de siempre
     state.chatLog[lobiId].push({type:'msg',me:true,text:texto});
-    document.getElementById('chat-scroll').innerHTML=renderChat();scrollChat();
+    document.getElementById('chat-scroll').innerHTML=renderChat();resolverAvatares();scrollChat();
   }
 }
 function toggleEmoji(e){e.stopPropagation();document.getElementById('emoji-pop').classList.toggle('active');}
@@ -4627,7 +4660,7 @@ document.getElementById('chat-image-input').addEventListener('change', async fun
   } else {
     /* Lobi de ejemplo: como siempre, solo local */
     const r=new FileReader();
-    r.onload=ev=>{state.chatLog[lobiId].push({type:'msg',me:true,img:ev.target.result});document.getElementById('chat-scroll').innerHTML=renderChat();scrollChat();};
+    r.onload=ev=>{state.chatLog[lobiId].push({type:'msg',me:true,img:ev.target.result});document.getElementById('chat-scroll').innerHTML=renderChat();resolverAvatares();scrollChat();};
     r.readAsDataURL(file);
   }
 });
@@ -4671,11 +4704,12 @@ function showProfilePopover(e,name){
   const cat=GAME_CATALOG[gid];
   const gameLabel=cat&&cat.logo?`<img src="${cat.logo}" style="height:12px;vertical-align:middle"> · ${state.currentLobi.mode}`:`${cat?cat.name:'Minecraft'} · ${state.currentLobi?state.currentLobi.mode:''}`;
   const pop=document.getElementById('popover');
-  pop.innerHTML=`<div class="pop-banner"></div><img class="pop-av" src="${av(p.seed,p.bg)}"><div class="pop-body"><div class="pop-name">${p.name}${me?' (tú)':''}</div><div class="pop-sub">★ ${p.rating} · ${gameLabel}</div>${me?'':`<div class="pop-compat"><span>Compatibilidad contigo</span><b style="color:${compatColor(p.compat)}">${p.compat}%</b></div>`}
+  pop.innerHTML=`<div class="pop-banner"></div>${avatarDe(p,'class="pop-av"')}<div class="pop-body"><div class="pop-name">${p.name}${me?' (tú)':''}</div><div class="pop-sub">★ ${p.rating} · ${gameLabel}</div>${me?'':`<div class="pop-compat"><span>Compatibilidad contigo</span><b style="color:${compatColor(p.compat)}">${p.compat}%</b></div>`}
     <div style="font-size:11px;color:var(--color-muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">En este Lobi</div>
     <div class="pop-tags"><span class="tag pri">${state.currentLobi?state.currentLobi.mode:p.mode}</span><span class="tag pri">${p.style}</span><span class="tag">${p.level}</span></div>
     ${me?'':`<div class="pop-actions"><button class="btn btn-secondary btn-sm" style="flex:1" onclick="openConversation('${p.name}')">Mensaje</button><button class="btn btn-secondary btn-sm" style="flex:1" onclick="viewFullProfile('${p.name}')">Ver perfil</button></div>
     <div class="pop-actions" style="margin-top:8px">${botonAmistad(p.name)}</div>`}</div>`;
+  resolverAvatares();   // el popover se dibuja solo, sin pasar por navTo()
   pop.classList.add('active');
   const px=Math.min(e.clientX+10,window.innerWidth-300),py=Math.min(e.clientY-10,window.innerHeight-360);
   pop.style.left=Math.max(12,px)+'px';pop.style.top=Math.max(12,py)+'px';
