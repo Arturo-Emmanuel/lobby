@@ -3521,7 +3521,7 @@ function settingsView(){
           <button class="btn btn-secondary btn-sm" onclick="openModal('modal-password')">Cambiar</button>
         </div></div>
       <div class="detail-card"><h5>Cuenta</h5><div class="soy-list"><div class="soy-item"><span class="k">Correo</span> arturo@lobby.gg</div><div class="soy-item"><span class="k">Edad</span> Verificado +18 ✅</div></div></div>
-      <button class="btn btn-secondary" onclick="go('screen-auth')">Cerrar sesión</button></div>`;
+      <button class="btn btn-secondary" onclick="cerrarSesion()">Cerrar sesión</button></div>`;
 }
 function saveProfile(){
   const v=(document.getElementById('set-displayname')||{}).value;
@@ -4766,7 +4766,49 @@ function navTo(view){
   resolverAvatares();   // reemplaza los robots por fotos reales donde las haya (Bug A)
 }
 
+/* ====== EL PORTERO (sesión persistente) =====================================
+   Supabase YA guardaba tu sesión en el navegador — por eso no te pedía la
+   contraseña de nuevo. Lo que faltaba es que la app se lo preguntara al
+   arrancar. Sin esto, el código de abajo mostraba siempre la pantalla de
+   bienvenida, aunque estuvieras logueado.
+
+   Lo pide el Manual de Marca (sección 20): "La sesión permanece iniciada al
+   cerrar y volver a abrir".
+
+   Y de yapa: como goApp() es lo que dispara restaurarMiLobiActivo(), ahora tu
+   Lobi activo también se recupera solo, sin tener que loguearte a mano. */
+async function revisarSesionGuardada(){
+  try{
+    const { data, error } = await sb.auth.getSession();
+    if(error) return;                       // ante la duda, pantalla de bienvenida
+    if(!data || !data.session) return;      // no hay sesión guardada: a loguearse
+    await cargarMiPerfil();                 // traigo nombre, estilo, país y foto
+    goApp('home');
+  }catch(e){ /* si algo falla, se queda la pantalla de bienvenida */ }
+}
+
+/* Cerrar sesión DE VERDAD.
+   Antes el botón hacía go('screen-auth'): cambiaba de pantalla pero nunca
+   llamaba a signOut(), así que la sesión seguía viva. Sin el portero eso no se
+   notaba; con el portero, recargar te devolvía adentro.
+
+   Salgo del Lobi ANTES de cerrar sesión (y espero a que termine): si me fuera
+   sin avisar, mi silla quedaría ocupada hasta que el robot la libere. */
+async function cerrarSesion(){
+  try{
+    const lobiId = state.currentLobi ? state.currentLobi.id : null;
+    limpiarSalaLocal();
+    if(lobiId && lobiId.startsWith('real-')){
+      await salirDelLobi(lobiId);
+      avisarAOtrasPestanas('sali', lobiId);
+    }
+    await sb.auth.signOut();
+  }catch(e){ /* aunque falle, recargamos igual */ }
+  location.reload();   // arranque limpio: se borra todo el estado en memoria
+}
+
 syncUserUI();navTo('home');
+revisarSesionGuardada();
 </script>
 </body>
 </html>
