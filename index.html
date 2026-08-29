@@ -39,6 +39,24 @@ input,select,textarea{font-family:inherit}
 
 .screen{display:none;height:100vh;height:100dvh;overflow-y:auto;animation:fade .35s ease}
 .screen.active{display:block}
+
+/* ====== PANTALLA DE CARGA (anti-parpadeo) ======
+   Mientras revisamos si hay sesión guardada, tapamos todo con el splash.
+   La clase 'revisando-sesion' la pone un script chiquito en el <body>, ANTES
+   de que el navegador dibuje la pantalla de registro. */
+#splash{display:none;position:fixed;inset:0;z-index:9999;background:var(--color-bg,#0A0A0A);
+  flex-direction:column;align-items:center;justify-content:center;gap:22px}
+html.revisando-sesion #splash{display:flex}
+html.revisando-sesion .screen,
+html.revisando-sesion #app{display:none !important}
+#splash .sp-name{font-size:34px;font-weight:700;letter-spacing:-.5px;
+  background:var(--grad);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:var(--color-primary)}
+#splash .sp-ring{width:30px;height:30px;border-radius:50%;
+  border:3px solid rgba(200,77,255,.2);border-top-color:var(--color-primary);
+  animation:sp-girar .7s linear infinite}
+@keyframes sp-girar{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#splash .sp-ring{animation-duration:2s}}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 .bg-glow{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
@@ -1098,6 +1116,37 @@ input,select,textarea{font-family:inherit}
 </style>
 </head>
 <body>
+
+<!-- Pantalla de carga: solo se ve mientras revisamos la sesión guardada -->
+<div id="splash"><div class="sp-name">Lobby</div><div class="sp-ring"></div></div>
+
+<script>
+/* ====== ANTI-PARPADEO ======
+   Este script tiene que correr ACÁ ARRIBA, antes de que el navegador dibuje la
+   pantalla de registro. Si esperara al script grande del final, ya sería tarde:
+   la pantalla de bienvenida ya se habría visto. Eso era el parpadeo.
+
+   No consulta a Supabase (eso tarda y necesita internet). Solo mira si hay una
+   pulsera guardada en el navegador, que es instantáneo. Si la hay, tapa todo
+   con el splash; si no, no hace nada y la pantalla de registro sale al toque,
+   sin ningún retraso para quien no tiene cuenta iniciada. */
+(function(){
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k && k.indexOf('sb-')===0 && k.indexOf('-auth-token')>0 && localStorage.getItem(k)){
+        document.documentElement.classList.add('revisando-sesion');
+        break;
+      }
+    }
+  }catch(e){ /* navegador con storage bloqueado: seguimos sin splash */ }
+  /* Red de seguridad: si en 5 segundos nadie lo quitó (internet caído, por
+     ejemplo), destapamos igual. Nadie se queda mirando un splash eterno. */
+  setTimeout(function(){
+    document.documentElement.classList.remove('revisando-sesion');
+  }, 5000);
+})();
+</script>
 
 <div class="bg-glow"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
 
@@ -4783,8 +4832,13 @@ async function revisarSesionGuardada(){
     if(error) return;                       // ante la duda, pantalla de bienvenida
     if(!data || !data.session) return;      // no hay sesión guardada: a loguearse
     await cargarMiPerfil();                 // traigo nombre, estilo, país y foto
-    goApp('home');
+    await goApp('home');                    // el await importa: destapo recién cuando la app está lista
   }catch(e){ /* si algo falla, se queda la pantalla de bienvenida */ }
+  finally{
+    /* Destapo pase lo que pase: entré a la app, o me quedo en la bienvenida.
+       Si esto no corriera, el splash quedaría pegado para siempre. */
+    document.documentElement.classList.remove('revisando-sesion');
+  }
 }
 
 /* Cerrar sesión DE VERDAD.
