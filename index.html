@@ -1813,10 +1813,18 @@ let canalMiembros=null;
 let conteoMiembros={};  // cuántos miembros tiene cada Lobi (para las tarjetas)
 
 /* Me registro como miembro de este Lobi en la base de datos. */
+/* Bandera anti-carrera: mientras me estoy anotando, el latido no debe opinar.
+   Sin esto pasaba lo siguiente: enterLobi() llamaba a unirmeAlLobi() (que tarda
+   unos milisegundos en insertar) y AL MISMO TIEMPO arrancaba el latido. El
+   latido preguntaba "¿está mi silla?", todavía no estaba, y me insertaba otra.
+   Dos filas en 1 milisegundo. */
+let anotandome = false;
+
 async function unirmeAlLobi(lobiId){
+  anotandome = true;
   try{
     const { data:{ user } } = await sb.auth.getUser();
-    if(!user) return;
+    if(!user){ anotandome = false; return; }
 
     /* Entró alguien: el Lobi revivió, le quito la marca de vacío.
        Va ANTES del return de abajo, para que también valga si vuelvo a entrar. (Problema 5) */
@@ -1827,7 +1835,7 @@ async function unirmeAlLobi(lobiId){
 
     // Si ya estoy, no me agrego de nuevo
     const { data:ya } = await sb.from('miembros').select('id').eq('lobi_id',lobiId).eq('id_usuario',user.id);
-    if(ya && ya.length>0) return;
+    if(ya && ya.length>0){ anotandome = false; return; }
     await sb.from('miembros').insert({
       lobi_id: lobiId,
       id_usuario: user.id,
@@ -1838,6 +1846,7 @@ async function unirmeAlLobi(lobiId){
     /* Aviso al chat que entré (Problema 9) */
     avisoDeSistema(lobiId, `${state.displayName} se ha unido al Lobi`);
   }catch(e){ /* si falla, seguimos igual */ }
+  finally{ anotandome = false; }   // ya terminé: el latido puede volver a opinar
 }
 
 /* Me saco de la lista de miembros al salir. */
@@ -1918,6 +1927,7 @@ let relojLatido = null;
 
 async function latir(){
   try{
+    if(anotandome) return;      // me estoy anotando ahora mismo: no opines todavía
     if(!state.currentLobi || !miId) return;
     const lobiId = state.currentLobi.id;
     if(!lobiId.startsWith('real-')) return;
@@ -1945,18 +1955,40 @@ async function latir(){
    Por eso primero pregunto por el Lobi y recién después decido. Me reinserto
    EN SILENCIO (sin avisoDeSistema): yo nunca me fui, así que anunciar
    "fulano se ha unido al Lobi" sería mentira y llenaría el chat de ruido. */
+let ultimaResurreccion = 0;
+
 async function revivirMiSilla(lobiId){
   try{
+    if(anotandome) return;
     if(!state.currentLobi || state.currentLobi.id !== lobiId) return;
+
+    /* Primero lo urgente: ¿el Lobi sigue vivo? Esta pregunta va ANTES del freno
+       de mano, porque salir de un Lobi muerto nunca se debe frenar. */
     const dbId = Number(lobiId.replace('real-',''));
     const { data:fila, error } = await sb.from('lobis').select('id').eq('id', dbId).maybeSingle();
     if(error) return;                       // sin señal → no hago nada, el próximo latido reintenta
     if(!fila){ verificarQueMiLobiSigueVivo(); return; }   // el Lobi murió → que el vigilante me saque
 
+    /* FRENO DE MANO: como mucho una resurrección por minuto.
+       Si algo hace que yo crea siempre que "me sacaron" (por ejemplo una
+       política RLS que falta y hace que el UPDATE no toque ninguna fila),
+       sin este freno me insertaría una silla nueva cada 30 segundos hasta
+       llenar la tabla. Ya pasó una vez: 18 jugadores en un Lobi de 5. */
+    if(Date.now() - ultimaResurreccion < 60000) return;
+
     const { data:{ user } } = await sb.auth.getUser();
     if(!user) return;
     if(!state.currentLobi || state.currentLobi.id !== lobiId) return;  // por si salí mientras consultaba
 
+    /* SEGUNDA OPINIÓN: antes de insertar, pregunto de verdad si mi silla está.
+       El UPDATE puede devolver 0 filas por motivos que NO son "me sacaron"
+       (falta de permisos, por ejemplo). Un SELECT no miente. */
+    const { data:existente, error:e2 } = await sb.from('miembros')
+      .select('id').eq('lobi_id', lobiId).eq('id_usuario', user.id);
+    if(e2) return;
+    if(existente && existente.length > 0) return;   // mi silla SÍ estaba: no inserto nada
+
+    ultimaResurreccion = Date.now();
     await sb.from('miembros').insert({
       lobi_id: lobiId,
       id_usuario: user.id,
@@ -1972,8 +2004,10 @@ async function revivirMiSilla(lobiId){
 
 function arrancarLatido(){
   pararLatido();
-  latir();                                   // un latido inmediato al entrar
-  relojLatido = setInterval(latir, 30000);   // y después cada 30 seg
+  /* Ya NO late al instante. Acabo de entrar, así que mi fila se creó recién
+     con visto_en = ahora: un latido inmediato no aporta nada y encima corría
+     carrera contra unirmeAlLobi(). El primero llega a los 30 seg. */
+  relojLatido = setInterval(latir, 30000);
 }
 
 function pararLatido(){
