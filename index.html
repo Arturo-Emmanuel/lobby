@@ -1921,11 +1921,53 @@ async function latir(){
     if(!state.currentLobi || !miId) return;
     const lobiId = state.currentLobi.id;
     if(!lobiId.startsWith('real-')) return;
-    await sb.from('miembros')
+    /* El .select('id') del final es la clave del Pilar 2: sin él, un UPDATE que
+       no encuentra ninguna fila no da error ni avisa nada — el latido caería al
+       vacío y nunca nos enteraríamos de que nos borraron la silla. */
+    const { data, error } = await sb.from('miembros')
       .update({ visto_en: new Date().toISOString() })
       .eq('lobi_id', lobiId)
-      .eq('id_usuario', miId);
+      .eq('id_usuario', miId)
+      .select('id');
+    if(error) return;                       // falló la consulta → el próximo latido reintenta
+    if(data && data.length > 0) return;     // late normal, mi silla está ahí
+    await revivirMiSilla(lobiId);           // 0 filas → mi silla no está. A ver qué pasó.
   }catch(e){ /* si un latido falla, el siguiente lo intenta */ }
+}
+
+/* ====== AUTO-RESURRECCIÓN DE MI SILLA (Pilar 2 · Problema 7) =================
+   Mi fila de 'miembros' desapareció mientras yo seguía en la sala. Hay dos
+   explicaciones posibles, y hacen falta cosas opuestas:
+
+     El Lobi también murió  → no tengo nada que hacer acá: que me saque el vigilante
+     El Lobi sigue vivo     → me sacaron por error: me vuelvo a anotar
+
+   Por eso primero pregunto por el Lobi y recién después decido. Me reinserto
+   EN SILENCIO (sin avisoDeSistema): yo nunca me fui, así que anunciar
+   "fulano se ha unido al Lobi" sería mentira y llenaría el chat de ruido. */
+async function revivirMiSilla(lobiId){
+  try{
+    if(!state.currentLobi || state.currentLobi.id !== lobiId) return;
+    const dbId = Number(lobiId.replace('real-',''));
+    const { data:fila, error } = await sb.from('lobis').select('id').eq('id', dbId).maybeSingle();
+    if(error) return;                       // sin señal → no hago nada, el próximo latido reintenta
+    if(!fila){ verificarQueMiLobiSigueVivo(); return; }   // el Lobi murió → que el vigilante me saque
+
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    if(!state.currentLobi || state.currentLobi.id !== lobiId) return;  // por si salí mientras consultaba
+
+    await sb.from('miembros').insert({
+      lobi_id: lobiId,
+      id_usuario: user.id,
+      nombre: state.displayName,
+      estilo: state.me.style || 'Chill'
+    });
+    /* Si mi salida en falso lo había dejado marcado como vacío, le saco la marca
+       para que el robot no lo borre estando yo adentro. */
+    await sb.from('lobis').update({ vacio_desde: null }).eq('id', dbId);
+    cargarMiembros(lobiId);
+  }catch(e){ /* si falla, el próximo latido lo reintenta */ }
 }
 
 function arrancarLatido(){
@@ -2083,7 +2125,10 @@ async function restaurarMiLobiActivo(){
     cargarMiembros(lobiId);
     renderActiveLobiSidebar();
     updateCenterNav();
-    toast('🎮 Seguís en tu Lobi: ' + state.currentLobi.name);
+    /* El toast espera 2 seg: toast() reutiliza la misma cajita, así que si
+       aviso de una le piso el "✅ ¡Bienvenido!" del login y no se lee ninguno. */
+    const nombreLobi = state.currentLobi.name;
+    setTimeout(()=>{ if(state.currentLobi) toast('🎮 Seguís en tu Lobi: ' + nombreLobi); }, 2000);
   }catch(e){ /* si falla, la app arranca normal, sin Lobi */ }
 }
 
@@ -2240,13 +2285,16 @@ async function extenderLobi(){
 async function cerrarLobiPorTiempo(){
   const l=state.currentLobi;
   if(!l) return;
-  const dbId = l.id.replace('real-','');
-  try{
-    await sb.from('lobis').delete().eq('id', dbId);
-  }catch(e){ /* si falla, igual salimos */ }
-  /* Uso la salida de emergencia, no finalizeLeave(): el Lobi acaba de dejar de
-     existir, así que no tiene sentido escribir "fulano abandonó" en él. A los
-     demás miembros los va a sacar su propio vigilante. (Pilar 3) */
+  /* FUGA ARREGLADA: antes esta función borraba el Lobi con
+       sb.from('lobis').delete()
+     ...pero SOLO de la tabla 'lobis'. Los mensajes, miembros, objetivos y
+     encuestas de ese Lobi quedaban huérfanos en la base PARA SIEMPRE, porque
+     nada volvía a mirarlos. Con el tiempo eso se acumula.
+
+     Ahora no borro nada desde acá: el robot ya se encarga (Tarea 2B borra los
+     Lobis vencidos con toda su cascada, en menos de un minuto). Yo solo salgo
+     de la sala. Y como a cada miembro se le vence el reloj a la misma hora,
+     todos salen solos — no hace falta que uno le borre el Lobi a los demás. */
   expulsarDeLobiMuerto('⏰ El Lobi ha terminado');
 }
 
