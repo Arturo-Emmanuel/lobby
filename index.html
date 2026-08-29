@@ -585,6 +585,14 @@ html.revisando-sesion #app{display:none !important}
 .mc-cover-img{background-size:cover;background-position:center}
 
 /* ====== crear lobi: elegir juego ====== */
+/* Interruptor ON/OFF (Problema 9: el objetivo principal es opcional) */
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;user-select:none}
+.switch-sub{font-size:12px;color:var(--color-muted);margin-top:3px;font-weight:400}
+.switch{width:44px;height:25px;border-radius:14px;background:var(--color-border);position:relative;flex-shrink:0;transition:background .2s}
+.switch .switch-dot{width:19px;height:19px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:left .2s}
+.switch.on{background:var(--color-primary)}
+.switch.on .switch-dot{left:22px}
+
 .create-game-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:13px;margin-bottom:6px}
 .create-game{position:relative;border-radius:14px;overflow:hidden;border:2px solid var(--color-border);cursor:pointer;transition:.18s;aspect-ratio:3/4;display:flex;align-items:flex-end}
 .create-game:hover{border-color:var(--color-primary)}
@@ -1824,8 +1832,19 @@ function filaALobi(l){
     coverImg: cat.cover.startsWith('data:') || cat.cover.startsWith('http'),
     members: [],
     terminaEn: l.termina_en ? new Date(l.termina_en).getTime() : null,
+    objetivoPrincipal: l.objetivo_principal || null,
+    tieneObjetivo: !!l.tiene_objetivo,
+    /* Lobis creados antes de este cambio no traen la columna: valen 5. */
+    maxJugadores: l.max_jugadores || 5,
     real: true
   };
+}
+
+/* El tope de jugadores de un Lobi. Un solo lugar donde vive el número, para no
+   volver a escribir "5" a mano en media app. (Problema 10) */
+function topeDe(l){
+  const n = l && l.maxJugadores;
+  return (typeof n === 'number' && n >= 2 && n <= 5) ? n : 5;
 }
 
 async function cargarLobisReales(){
@@ -1942,12 +1961,25 @@ async function unirmeAlLobi(lobiId){
     // Si ya estoy, no me agrego de nuevo
     const { data:ya } = await sb.from('miembros').select('id').eq('lobi_id',lobiId).eq('id_usuario',user.id);
     if(ya && ya.length>0){ anotandome = false; return; }
-    await sb.from('miembros').insert({
+    const { error:errEntrar } = await sb.from('miembros').insert({
       lobi_id: lobiId,
       id_usuario: user.id,
       nombre: state.displayName,
       estilo: state.me.style || 'Chill'
     });
+
+    /* El candado de la base me rechazó: el Lobi se llenó entre que toqué
+       "Unirme" y que llegó mi solicitud. Te saco de la sala en vez de dejarte
+       adentro creyendo que entraste. (Problema 10) */
+    if(errEntrar){
+      if(String(errEntrar.message||'').includes('LOBI_LLENO')){
+        anotandome = false;
+        if(state.currentLobi && state.currentLobi.id===lobiId){
+          expulsarDeLobiMuerto('🚫 Este Lobi se llenó justo antes de que entraras');
+        }
+      }
+      return;
+    }
 
     /* Aviso al chat que entré (Problema 9) */
     avisoDeSistema(lobiId, `${state.displayName} se ha unido al Lobi`);
@@ -3173,6 +3205,7 @@ function gameTag(gid,extra){
 function lobiCard(l){
   // Para Lobis reales, el conteo viene de la nube (Problema 2)
   const total = l.real ? (conteoMiembros[l.id]||0) : l.members.length;
+  const lleno = total >= topeDe(l);   // para marcar la tarjeta (Problema 10)
   /* Para Lobis reales las caras vienen de la nube; para los de ejemplo, de su
      propia lista. Así una tarjeta real muestra gente real. (Zona D) */
   const gente = l.real ? (miembrosPorLobi[l.id]||[]) : l.members;
@@ -3193,8 +3226,8 @@ function lobiCard(l){
     <div class="lobi-body"><div class="lobi-name">${l.name}</div>
       <div class="lobi-cats" style="margin-bottom:9px">${gameTag(gid,l.mode)}</div>
       <div class="lobi-cats">${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
-      <div class="lobi-meta"><span class="compat ${compatClass(l.compat)}"><span class="dot"></span>${l.compat}%</span><span class="players-count"><div class="avatars">${avs}${more}</div> ${total}/5</span></div>
-      <button class="btn btn-primary btn-sm btn-block">Ver y unirme</button></div></div>`;
+      <div class="lobi-meta"><span class="compat ${compatClass(l.compat)}"><span class="dot"></span>${l.compat}%</span><span class="players-count"><div class="avatars">${avs}${more}</div> ${total}/${topeDe(l)}</span></div>
+      <button class="btn ${lleno?'btn-secondary':'btn-primary'} btn-sm btn-block"${lleno?' style="opacity:.6"':''}>${lleno?'Lobi lleno':'Ver y unirme'}</button></div></div>`;
 }
 /* El botón de amistad cambia según cómo estemos con esa persona (Problema 11). */
 function botonAmistad(nombre){
@@ -3364,7 +3397,7 @@ function messagesView(){
   if(!openDM)return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div><div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${list}</div>`;
   const p=findPlayer(openDM);
   const thread=dms[openDM].map(m=>renderDMmsg(m,p)).join('');
-  const canInvite=state.currentLobi&&state.currentLobi.members.length<5&&friends.includes(openDM)&&!state.currentLobi.members.some(mm=>mm.name===openDM);
+  const canInvite=state.currentLobi&&state.currentLobi.members.length<topeDe(state.currentLobi)&&friends.includes(openDM)&&!state.currentLobi.members.some(mm=>mm.name===openDM);
   return `<div class="dm-open">
     <div class="dm-open-head"><button class="mini-btn" onclick="cerrarDM()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>${avatarDe(p,'style="width:42px;height:42px;border-radius:50%"')}<div style="flex:1"><div style="font-weight:700;font-size:16px">${openDM}</div><div style="font-size:12px;color:var(--color-success)">En línea</div></div>
       ${canInvite?`<button class="btn btn-primary btn-sm" onclick="sendInvite('${openDM}')">+ Invitar a mi Lobi</button>`:''}</div>
@@ -3615,17 +3648,48 @@ function createFormStep(){
       <div class="cat-block"><div class="cblabel">Modo de juego</div><div class="chip-grid" data-single id="cl-mode">${modes}</div></div>
       <div class="cat-block"><div class="cblabel">Estilo</div><div class="chip-grid" data-single id="cl-style">${styles}</div></div>
       <div class="cat-block"><div class="cblabel">Objetivo</div><div class="chip-grid" data-single id="cl-obj">${objs}</div></div></div>
-    <div class="form-group"><div class="glabel">Máximo de jugadores</div><div class="range-row"><input type="range" min="2" max="5" value="5" oninput="document.getElementById('maxv').textContent=this.value+'/5'"><span class="rval" id="maxv">5/5</span></div></div>
-    <div class="form-group"><div class="glabel">Objetivo principal</div><input type="text" id="cl-main-obj" placeholder="¿Qué quieren lograr?"></div>
+    <div class="form-group"><div class="glabel">Máximo de jugadores</div><div class="range-row"><input type="range" id="cl-max" min="2" max="5" value="5" oninput="document.getElementById('maxv').textContent=this.value+'/5'"><span class="rval" id="maxv">5/5</span></div></div>
+    <div class="form-group">
+      <div class="switch-row" onclick="toggleObjetivoPrincipal()">
+        <div><div class="glabel" style="margin:0">Añadir objetivo principal</div>
+          <div class="switch-sub">Una misión concreta para el equipo. Es opcional.</div></div>
+        <div class="switch" id="cl-obj-switch"><div class="switch-dot"></div></div>
+      </div>
+      <div id="cl-main-obj-wrap" class="hidden" style="margin-top:12px">
+        <input type="text" id="cl-main-obj" placeholder="Ej. Construir una ciudad medieval juntos" maxlength="80">
+      </div>
+    </div>
     <button class="btn btn-primary btn-block" onclick="publishLobi()">Publicar Lobi</button></div>`;
 }
+/* El interruptor del objetivo principal (Problema 9). */
+function toggleObjetivoPrincipal(){
+  const sw=document.getElementById('cl-obj-switch');
+  const wrap=document.getElementById('cl-main-obj-wrap');
+  if(!sw||!wrap) return;
+  const prendido = sw.classList.toggle('on');
+  wrap.classList.toggle('hidden', !prendido);
+  if(prendido){ const inp=document.getElementById('cl-main-obj'); if(inp) inp.focus(); }
+}
+
 async function publishLobi(){
   if(state.currentLobi){openModal('modal-already');return;}
   const cat=GAME_CATALOG[createGame];
   const nm=(document.getElementById('new-lobi-name')||{}).value||'Mi Lobi';
   const mode=(document.querySelector('#cl-mode .chip.sel')||{}).textContent||cat.modes[0];
   const style=(document.querySelector('#cl-style .chip.sel')||{}).textContent||cat.styles[0];
+  /* OJO: 'obj' es la ETIQUETA del Lobi (Hacer amigos, Construir…). Sirve para
+     describirlo y para la compatibilidad — NO es la misión del equipo.
+     Antes se usaba como misión, y ese era el Problema 9. */
   const obj=(document.querySelector('#cl-obj .chip.sel')||{}).textContent||cat.objectives[0];
+
+  /* La misión del equipo sale de la casilla de texto, y solo si el
+     interruptor está prendido. (Problema 9) */
+  const quiereObjetivo = !!(document.getElementById('cl-obj-switch')||{classList:{contains:()=>false}}).classList.contains('on');
+  const textoObjetivo = ((document.getElementById('cl-main-obj')||{}).value||'').trim();
+  const tieneObjetivo = quiereObjetivo && textoObjetivo.length>0;
+
+  /* El tope de jugadores que elegiste con la barrita. (Problema 10) */
+  const tope = Math.min(5, Math.max(2, parseInt((document.getElementById('cl-max')||{}).value,10) || 5));
 
   // Guardar el Lobi en la base de datos
   let lobiId='mine';
@@ -3644,13 +3708,18 @@ async function publishLobi(){
         objetivo: obj,
         termina_en: terminaEn,
         banner: bannerElegido,
-        id_creador: user.id
+        id_creador: user.id,
+        objetivo_principal: tieneObjetivo ? textoObjetivo : null,
+        tiene_objetivo: tieneObjetivo,
+        max_jugadores: tope
       }).select().single();
       if(error) throw error;
       if(data && data.id) lobiId='real-'+data.id;  // id real de la base
-      // El objetivo elegido se convierte en la primera misión del equipo (0%)
-      if(lobiId.startsWith('real-')){
-        await guardarObjetivo(lobiId, obj);
+      /* La misión del equipo es lo que ESCRIBISTE, no la etiqueta que elegiste.
+         Y si no quisiste misión, no se crea ninguna: el Lobi arranca limpio,
+         sin tarjeta vacía adentro. (Problema 9) */
+      if(lobiId.startsWith('real-') && tieneObjetivo){
+        await guardarObjetivo(lobiId, textoObjetivo);
       }
       toast('✅ ¡Lobi creado!');
     }
@@ -3660,6 +3729,8 @@ async function publishLobi(){
 
   enterLobi({id:lobiId,game:createGame,banner:bannerElegido,name:nm,mode:mode.toUpperCase(),cats:[mode,style,obj],compat:91,
     members:[], terminaEn: lobiId.startsWith('real-') ? Date.now()+90*60*1000 : null,
+    objetivoPrincipal: tieneObjetivo ? textoObjetivo : null, tieneObjetivo: tieneObjetivo,
+    maxJugadores: tope,
     real: lobiId.startsWith('real-')},true);
   createStep='game';createGame=null;
 }
@@ -3708,6 +3779,18 @@ function changePassword(){
 async function tryJoin(lobiId){
   if(state.currentLobi){if(state.currentLobi.id===lobiId){navTo('room');return;}openModal('modal-already');return;}
   const l=(realLobis||[]).find(x=>x.id===lobiId)||lobis.find(x=>x.id===lobiId);if(!l)return;
+
+  /* ¿Hay lugar? Uso el conteo de la nube, que es el que está al día.
+     Igual el candado de verdad está en la base (trigger 'miembros_tope'):
+     esto es solo para avisarte lindo antes de intentarlo. (Problema 10) */
+  if(l.real){
+    const dentro = conteoMiembros[lobiId] || 0;
+    if(dentro >= topeDe(l)){
+      toast(`🚫 Este Lobi ya está lleno (${dentro}/${topeDe(l)})`);
+      return;
+    }
+  }
+
   state.pendingLobi=l;
   let miembros = l.members;
   // Si es un Lobi real, traemos los miembros de verdad desde la nube
@@ -3772,7 +3855,7 @@ function finalizeLeave(){
 }
 function renderActiveLobiSidebar(){
   const slot=document.getElementById('sb-active-lobi-slot');
-  if(state.currentLobi){const l=state.currentLobi;slot.innerHTML=`<div class="sb-active-lobi" onclick="navTo('room')"><div class="sal-label"><span class="sal-dot" style="width:7px;height:7px;border-radius:50%;background:var(--color-success);display:inline-block"></span><span class="sal-label-text"> Tu Lobi activo</span></div><div class="sal-name">${l.name}</div><div class="sal-meta">${l.members.length}/5 · toca para volver</div></div><div class="sb-divider"></div>`;}
+  if(state.currentLobi){const l=state.currentLobi;slot.innerHTML=`<div class="sb-active-lobi" onclick="navTo('room')"><div class="sal-label"><span class="sal-dot" style="width:7px;height:7px;border-radius:50%;background:var(--color-success);display:inline-block"></span><span class="sal-label-text"> Tu Lobi activo</span></div><div class="sal-name">${l.name}</div><div class="sal-meta">${l.members.length}/${topeDe(l)} · toca para volver</div></div><div class="sb-divider"></div>`;}
   else slot.innerHTML='';
 }
 function updateCenterNav(){const dot=document.getElementById('mnav-center-dot');const icon=document.getElementById('mnav-center-icon');if(state.currentLobi){dot.classList.remove('hidden');icon.innerHTML='<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 12h.01M16 12h.01M11 12h2"/>';}else{dot.classList.add('hidden');icon.innerHTML='<path d="M12 5v14M5 12h14"/>';}}
@@ -3809,7 +3892,8 @@ function skipRating(){closeModal('modal-rate');toast('Saliste del Lobi');finaliz
 /* ============ INVITAR AMIGO ============ */
 function openInviteFromRoom(){
   if(!state.currentLobi)return;
-  if(state.currentLobi.members.length>=5){toast('Tu Lobi está lleno (5/5)');return;}
+  const tope=topeDe(state.currentLobi);
+  if(state.currentLobi.members.length>=tope){toast(`Tu Lobi está lleno (${tope}/${tope})`);return;}
   const invitable=friends.filter(f=>!state.currentLobi.members.some(m=>m.name===f));
   const cont=document.getElementById('invite-friend-list');
   if(friends.length===0){
@@ -3886,7 +3970,7 @@ function roomView(){
     const rol = esLider ? 'Líder del Lobi' : escapeHtml(m.role);
     return `<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${avatarDe(m)}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}${corona}</div><div class="mrole ${esLider?'mrole-lider':''}">${rol}</div></div></div>`;
   }).join('');
-  const libres = 5 - l.members.length;
+  const libres = Math.max(0, topeDe(l) - l.members.length);   // sillas libres reales (Problema 10)
   let inviteSlot = '';
   for(let i=0; i<libres; i++){
     inviteSlot += `<div class="member-slot" onclick="openInviteFromRoom()">
@@ -3920,7 +4004,7 @@ function roomView(){
               <div class="cover-titlewrap">
                 <div class="rh-cats" style="margin-bottom:6px">${gameTag(gid,l.mode)}</div>
                 <div class="rh-title">${escapeHtml(l.name)}</div>
-                <div class="cover-sub"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/5 jugadores</span> · <span class="compat high" style="font-size:12px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
+                <div class="cover-sub"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/${topeDe(l)} jugadores</span> · <span class="compat high" style="font-size:12px"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
               </div>
               <span class="room-timer" id="room-timer-badge"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> <span id="room-timer-text">--:--</span></span>
               <button class="rh-more cover-more" onclick="toggleRoomInfo()" title="Más opciones"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
@@ -3942,7 +4026,7 @@ function roomView(){
       <div class="room-col room-side ${roomTab==='side'?'mshow':''}">
         <div class="side-block"><div class="colhead">Objetivos <span class="add" onclick="openObjectiveModal()">+</span></div><div id="objectives-box">${renderObjectives()}</div></div>
         <div class="side-block"><div class="colhead">Encuestas <span class="add" onclick="openPollBuilder()">+</span></div><div id="side-polls-box">${renderSidePolls()}</div></div>
-        <div class="side-block side-members"><div class="colhead">Miembros · ${l.members.length}/5</div>${members}${inviteSlot}</div>
+        <div class="side-block side-members"><div class="colhead">Miembros · ${l.members.length}/${topeDe(l)}</div>${members}${inviteSlot}</div>
         <button class="btn btn-secondary btn-block btn-sm" onclick="openModal('modal-extend')">Simular: Lobi por cerrar</button></div>
       <div class="room-col room-members ${roomTab==='members'?'mshow':''}">
         <div class="room-cover has-cover rh-mobile-only" style="${coverStyleRoom}">
@@ -3951,14 +4035,14 @@ function roomView(){
             <div class="cover-top">
               <div class="cover-titlewrap">
                 <div class="rh-title">${escapeHtml(l.name)}</div>
-                <div class="cover-sub"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/5 jugadores</span> · <span class="compat high"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
+                <div class="cover-sub"><span><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg> Lobi público</span> · <span>${l.members.length}/${topeDe(l)} jugadores</span> · <span class="compat high"><span class="dot" style="background:var(--color-success)"></span>${l.compat}% compat.</span></div>
               </div>
             </div>
             ${renderMisionDestacada()}
           </div>
         </div>
         <div class="members-card">
-          <div class="colhead">Miembros · ${l.members.length}/5</div>${members}${inviteSlot}
+          <div class="colhead">Miembros · ${l.members.length}/${topeDe(l)}</div>${members}${inviteSlot}
         </div>
         <div class="members-chatbait" onclick="irAlChatYescribir()">
           <span class="mcb-emoji">😊</span>
@@ -4922,7 +5006,7 @@ function emparejarConJuego(gid){
   c.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center"><div style="width:90px;height:90px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:40px;animation:pulse 1.2s infinite">⚡</div><h2 style="margin-top:24px;font-size:22px">Buscando tu escuadra en ${cat.name}…</h2><p style="color:var(--color-muted);margin-top:8px;max-width:340px">Lobby está encontrando jugadores compatibles con tus respuestas en ${cat.name}.</p></div><style>@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}</style>`;
   // busca un Lobi existente de ese juego; si no hay, crea uno automático de ese juego
   setTimeout(()=>{
-    const match=lobis.find(l=>(l.game||'minecraft')===gid && l.members.length<5);
+    const match=lobis.find(l=>(l.game||'minecraft')===gid && l.members.length<topeDe(l));
     if(match){tryJoin(match.id);return;}
     // no hay Lobi de ese juego con espacio: crear uno automático
     const mode=cat.modes[0];
