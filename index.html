@@ -588,6 +588,13 @@ html.revisando-sesion #app{display:none !important}
 .mc-cover-img{background-size:cover;background-position:center}
 
 /* ====== crear lobi: elegir juego ====== */
+/* Pestañas dentro de Mensajes en celular (Problema 3) */
+.msg-tabs{margin-bottom:18px}
+.msg-tabs .chip{display:inline-flex;align-items:center;gap:6px}
+.tab-badge{background:var(--color-danger);color:#fff;font-size:10px;font-weight:700;
+  min-width:17px;height:17px;border-radius:99px;display:inline-flex;align-items:center;
+  justify-content:center;padding:0 5px;line-height:1}
+
 /* Interruptor ON/OFF (Problema 9: el objetivo principal es opcional) */
 .switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;user-select:none}
 .switch-sub{font-size:12px;color:var(--color-muted);margin-top:3px;font-weight:400}
@@ -3422,43 +3429,10 @@ const views={
     </div>
     <div id="search-results">${htmlResultados()}</div>`,
   friends:()=>{
-    const yo = state.displayName;
-
-    /* Solicitudes que ME llegaron y no respondí */
-    const recibidas = solicitudes.filter(a => a.estado==='pendiente' && a.para_nombre===yo);
-    /* Las que YO mandé y esperan respuesta */
-    const enviadas  = solicitudes.filter(a => a.estado==='pendiente' && a.de_nombre===yo);
-
-    const reqHtml = recibidas.length
-      ? recibidas.map(a=>{
-          const p=findPlayer(a.de_nombre);
-          return `<div class="player-card">${avatarDe(p)}
-            <div class="pinfo"><div class="pname">${escapeHtml(a.de_nombre)}</div><div class="pgame">Quiere ser tu amigo</div></div>
-            <div class="pactions">
-              <button class="mini-btn" style="border-color:var(--color-success)" title="Aceptar" onclick="aceptarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-              <button class="mini-btn" title="Rechazar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-danger)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-            </div></div>`;
-        }).join('')
-      : '<div class="side-empty" style="max-width:400px">Sin solicitudes pendientes.</div>';
-
-    const envHtml = enviadas.length
-      ? `<div class="sec-head"><div class="sec-title">Enviadas</div></div><div class="player-grid">` +
-        enviadas.map(a=>{
-          const p=findPlayer(a.para_nombre);
-          return `<div class="player-card">${avatarDe(p)}
-            <div class="pinfo"><div class="pname">${escapeHtml(a.para_nombre)}</div><div class="pgame">Esperando respuesta…</div></div>
-            <div class="pactions"><button class="mini-btn" title="Cancelar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-muted)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div></div>`;
-        }).join('') + `</div>`
-      : '';
-
-    const amigosHtml = friends.length
-      ? friends.map(f=>playerCard(findPlayer(f))).join('')
-      : '<div class="side-empty" style="max-width:400px">Todavía no tenés amigos. Entrá a un Lobi y agregá a quien te caiga bien. 🎮</div>';
-
     return `<div class="hero-line">Amigos</div><div class="hero-sub">La gente que te cayó bien. No la pierdas.</div>
-      <div class="sec-head"><div class="sec-title">Solicitudes</div></div><div class="player-grid">${reqHtml}</div>
-      ${envHtml}
-      <div class="sec-head"><div class="sec-title">Tus amigos</div></div><div class="player-grid">${amigosHtml}</div>`;
+      <div class="sec-head"><div class="sec-title">Solicitudes</div></div><div class="player-grid">${htmlSolicitudesRecibidas()}</div>
+      ${htmlSolicitudesEnviadas()}
+      <div class="sec-head"><div class="sec-title">Tus amigos</div></div><div class="player-grid">${htmlListaAmigos()}</div>`;
   },
   messages:()=>messagesView(),
   lobis:()=>`<div class="hero-line">Lobis activos</div><div class="hero-sub">Puntos de encuentro temporales. Únete o crea el tuyo.</div>
@@ -3468,10 +3442,99 @@ const views={
   settings:()=>settingsView(),
 };
 
+/* ====== AMIGOS Y SOLICITUDES: TROZOS COMPARTIDOS (Problema 3) ===============
+   Estos tres pedazos estaban escritos dentro de la vista Amigos. Los saqué a
+   funciones propias porque ahora los usan DOS lugares: la sección Amigos de
+   escritorio y las pestañas nuevas dentro de Mensajes en celular. Una sola
+   versión: si mañana cambia el diseño de una tarjeta, cambia en los dos. */
+function solicitudesRecibidas(){
+  const yo = state.displayName;
+  return solicitudes.filter(a => a.estado==='pendiente' && a.para_nombre===yo);
+}
+function solicitudesEnviadas(){
+  const yo = state.displayName;
+  return solicitudes.filter(a => a.estado==='pendiente' && a.de_nombre===yo);
+}
+
+function htmlSolicitudesRecibidas(){
+  const recibidas = solicitudesRecibidas();
+  if(!recibidas.length) return '<div class="side-empty" style="max-width:400px">Sin solicitudes pendientes.</div>';
+  return recibidas.map(a=>{
+    const p=findPlayer(a.de_nombre);
+    return `<div class="player-card">${avatarDe(p)}
+      <div class="pinfo"><div class="pname">${escapeHtml(a.de_nombre)}</div><div class="pgame">Quiere ser tu amigo</div></div>
+      <div class="pactions">
+        <button class="mini-btn" style="border-color:var(--color-success)" title="Aceptar" onclick="aceptarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-success)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+        <button class="mini-btn" title="Rechazar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-danger)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div></div>`;
+  }).join('');
+}
+
+function htmlSolicitudesEnviadas(){
+  const enviadas = solicitudesEnviadas();
+  if(!enviadas.length) return '';
+  return `<div class="sec-head"><div class="sec-title">Enviadas</div></div><div class="player-grid">` +
+    enviadas.map(a=>{
+      const p=findPlayer(a.para_nombre);
+      return `<div class="player-card">${avatarDe(p)}
+        <div class="pinfo"><div class="pname">${escapeHtml(a.para_nombre)}</div><div class="pgame">Esperando respuesta…</div></div>
+        <div class="pactions"><button class="mini-btn" title="Cancelar" onclick="rechazarSolicitud(${a.id})"><svg fill="none" stroke="var(--color-muted)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div></div>`;
+    }).join('') + `</div>`;
+}
+
+function htmlListaAmigos(){
+  if(!friends.length) return '<div class="side-empty" style="max-width:400px">Todavía no tenés amigos. Entrá a un Lobi y agregá a quien te caiga bien. 🎮</div>';
+  return friends.map(f=>playerCard(findPlayer(f))).join('');
+}
+
+/* ====== PESTAÑAS DENTRO DE MENSAJES, SOLO EN CELULAR (Problema 3) ===========
+   En celular la barra de abajo no tiene lugar para Amigos, y vos no querías
+   sacar Lobis de ahí. La solución que pediste: meter Amigos y Solicitudes como
+   pestañas adentro de Mensajes, como hacen TikTok e Instagram.
+
+   En escritorio NO cambia nada: allá Amigos y Mensajes siguen siendo secciones
+   separadas en la barra lateral. */
+let pestanaMensajes = 'chats';   // 'chats' | 'amigos' | 'solicitudes'
+
+function cambiarPestanaMensajes(cual){
+  pestanaMensajes = cual;
+  navTo('messages');
+}
+
 function messagesView(){
   const names=Object.keys(dms);
   const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':(last.invite?'🎮 Invitación a un Lobi':escapeHtml(last.text||''))}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer">${avatarDe(p)}<div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
-  if(!openDM)return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div><div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${list}</div>`;
+  if(!openDM){
+    const listaChats = list || '<div class="side-empty" style="max-width:400px">Todavía no tenés conversaciones. Agregá a alguien y escribile. 💬</div>';
+
+    /* En escritorio, Mensajes es solo Mensajes: Amigos vive en su propia
+       sección de la barra lateral. Las pestañas son exclusivas de celular. */
+    if(!esPantallaChica()){
+      return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div>
+        <div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${listaChats}</div>`;
+    }
+
+    const pendientes = solicitudesRecibidas().length;
+    const chapa = pendientes ? `<span class="tab-badge">${pendientes}</span>` : '';
+    const tab = pestanaMensajes;
+
+    let cuerpo;
+    if(tab==='amigos'){
+      cuerpo = `<div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${htmlListaAmigos()}</div>`;
+    }else if(tab==='solicitudes'){
+      cuerpo = `<div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${htmlSolicitudesRecibidas()}</div>${htmlSolicitudesEnviadas()}`;
+    }else{
+      cuerpo = `<div class="player-grid" style="grid-template-columns:1fr;max-width:560px">${listaChats}</div>`;
+    }
+
+    return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div>
+      <div class="chip-grid msg-tabs">
+        <button class="chip ${tab==='chats'?'sel':''}" onclick="cambiarPestanaMensajes('chats')">💬 Chats</button>
+        <button class="chip ${tab==='amigos'?'sel':''}" onclick="cambiarPestanaMensajes('amigos')">👥 Amigos</button>
+        <button class="chip ${tab==='solicitudes'?'sel':''}" onclick="cambiarPestanaMensajes('solicitudes')">✉️ Solicitudes${chapa}</button>
+      </div>
+      ${cuerpo}`;
+  }
   const p=findPlayer(openDM);
   const thread=dms[openDM].map(m=>renderDMmsg(m,p)).join('');
   const canInvite=state.currentLobi&&state.currentLobi.members.length<topeDe(state.currentLobi)&&friends.includes(openDM)&&!state.currentLobi.members.some(mm=>mm.name===openDM);
