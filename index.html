@@ -674,8 +674,23 @@ html.revisando-sesion #app{display:none !important}
   html,body{width:100%;max-width:100%;overflow-x:hidden;position:relative}
   .app,.main,.content,.content-inner,.topbar,.room,.room-body,.room-col,.notif-panel{max-width:100vw;box-sizing:border-box}
 
-  /* ---- Barra de arriba: buscador full, sin apretujar ---- */
-  .topbar{padding:12px 14px;gap:8px;max-width:100vw;width:100%;overflow:hidden;box-sizing:border-box}
+  /* ---- Barra de arriba: flota y se desvanece (idea de Arturo) ----
+     Es el mismo degradado que ya usábamos dentro del Lobi, ahora en toda la
+     app: la barra deja de ser una franja con línea divisoria y pasa a ser una
+     sombra que se disuelve, con el contenido corriendo por debajo.
+
+     pointer-events:none en la barra + auto en sus hijos: así la parte
+     transparente de abajo no se come los toques del contenido que pasa por
+     atrás. Sin eso, habría una franja invisible que no deja tocar nada. */
+  .main{position:relative}
+  .topbar{position:absolute;top:0;left:0;right:0;z-index:40;
+    padding:calc(12px + env(safe-area-inset-top)) 14px 24px;
+    gap:8px;max-width:100vw;width:100%;overflow:hidden;box-sizing:border-box;
+    border-bottom:none;pointer-events:none;
+    background:linear-gradient(180deg,rgba(6,4,12,.95) 0%,rgba(6,4,12,.78) 45%,rgba(6,4,12,0) 100%)}
+  .topbar > *{pointer-events:auto}
+  /* El contenido arranca debajo de la parte sólida de la barra */
+  .content{padding-top:calc(74px + env(safe-area-inset-top))}
   /* En celular el espaciador está apagado porque la barra de búsqueda ya
      estiraba con su flex:1. Pero en la sección Buscar esa barra se esconde
      (Problema 4) y sin nadie que empuje, los botones se apelotonaban a la
@@ -824,7 +839,10 @@ html.revisando-sesion #app{display:none !important}
 
 /* ══════════ CELULARES CHICOS (≤400px) ══════════ */
 @media(max-width:400px){
-  .content{padding:14px 12px}
+  /* El padding-top va aparte: si usara el atajo 'padding' de una línea, le
+     borraría el espacio de arriba que necesita la barra flotante y el
+     contenido quedaría tapado por ella. */
+  .content{padding:14px 12px;padding-top:calc(72px + env(safe-area-inset-top))}
   .hero-line{font-size:20px}
   .player-card .av{width:42px;height:42px}
   .player-card .pname{font-size:15px}
@@ -1255,7 +1273,11 @@ html.revisando-sesion #app{display:none !important}
 
   <div class="main">
     <div class="topbar">
-      <div class="brand-row mobile-topbar-only" style="gap:9px"><img class="brand-logo-img" data-lobbylogo src="" style="width:34px;height:34px"><div class="brand-name" style="font-size:20px">Lobby</div></div>
+      <!-- El logo de Lobby vivía acá. Se quitó: en una app con barra inferior,
+           "volver al inicio" ya lo hace el botón Inicio, así que el logo era un
+           botón repetido ocupando el lugar más valioso de la pantalla. La marca
+           la da el splash al abrir. (Instagram, TikTok, Discord y Spotify
+           tampoco lo ponen en su barra de arriba.) -->
       <div class="search topbar-search"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input type="text" id="search-top" placeholder="Buscar jugadores o Lobis…" onfocus="irABuscar()" oninput="alBuscar(this.value)"></div>
       <div class="topbar-spacer"></div>
       <button class="icon-btn mobile-topbar-only" id="notif-btn" onclick="toggleNotif(event)"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg><span class="badge hidden" id="notif-badge-mobile"></span></button>
