@@ -676,7 +676,12 @@ html.revisando-sesion #app{display:none !important}
 
   /* ---- Barra de arriba: buscador full, sin apretujar ---- */
   .topbar{padding:12px 14px;gap:8px;max-width:100vw;width:100%;overflow:hidden;box-sizing:border-box}
+  /* En celular el espaciador está apagado porque la barra de búsqueda ya
+     estiraba con su flex:1. Pero en la sección Buscar esa barra se esconde
+     (Problema 4) y sin nadie que empuje, los botones se apelotonaban a la
+     izquierda. Ahí lo prendemos de vuelta. */
   .topbar-spacer{display:none}
+  .app.viewing-search .topbar-spacer{display:block}
   .search{max-width:none;min-width:0;flex:1 1 auto;padding:11px 13px}
   .search input{font-size:16px;min-width:0;width:100%}
   .topbar .theme-toggle,.topbar .icon-btn{flex-shrink:0}
@@ -1244,7 +1249,6 @@ html.revisando-sesion #app{display:none !important}
     <button class="nav-item" data-view="profile" onclick="navTo('profile')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0116 0v1"/></svg> Perfil</button>
     <div class="sb-spacer"></div>
     <button class="nav-item" id="sb-notif-btn" onclick="toggleNotif(event)"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg> Notificaciones <span class="nav-badge hidden" id="notif-badge"></span></button>
-    <button class="nav-item" id="sb-theme-btn" onclick="toggleTheme()"></button>
     <button class="nav-item" data-view="settings" onclick="navTo('settings')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg> Ajustes</button>
     <div class="sb-user" style="margin-top:12px" onclick="navTo('profile')"><img class="av" id="sb-avatar" src=""><div class="meta"><div class="nm" id="sb-username">ArturoYT</div><div class="lv">Ver mi perfil</div></div></div>
   </aside>
@@ -1254,7 +1258,6 @@ html.revisando-sesion #app{display:none !important}
       <div class="brand-row mobile-topbar-only" style="gap:9px"><img class="brand-logo-img" data-lobbylogo src="" style="width:34px;height:34px"><div class="brand-name" style="font-size:20px">Lobby</div></div>
       <div class="search topbar-search"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input type="text" id="search-top" placeholder="Buscar jugadores o Lobis…" onfocus="irABuscar()" oninput="alBuscar(this.value)"></div>
       <div class="topbar-spacer"></div>
-      <button class="theme-toggle mobile-topbar-only" id="theme-toggle" onclick="toggleTheme()" title="Cambiar tema" style="margin-right:10px"></button>
       <button class="icon-btn mobile-topbar-only" id="notif-btn" onclick="toggleNotif(event)"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg><span class="badge hidden" id="notif-badge-mobile"></span></button>
     </div>
     <div class="notif-panel" id="notif-panel"></div>
@@ -1517,6 +1520,10 @@ const MOON_SVG='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox=
 function setTheme(t){
   state.theme=t;
   document.documentElement.setAttribute('data-theme',t);
+  /* El tema ahora se cambia solo desde Ajustes → Apariencia. Se quitaron los
+     atajos de la barra lateral y de la barra de arriba en celular: eran una
+     tercera copia del mismo control y le robaban espacio a la pantalla chica.
+     Los 'if' de abajo se quedan por si esos botones vuelven algún día. */
   const tt=document.getElementById('theme-toggle');if(tt)tt.innerHTML=t==='dark'?MOON_SVG:SUN_SVG;
   const sb=document.getElementById('sb-theme-btn');if(sb)sb.innerHTML=(t==='dark'?SUN_SVG:MOON_SVG)+(t==='dark'?' Modo claro':' Modo oscuro');
   const sset=document.getElementById('set-theme-label');if(sset)sset.textContent=t==='dark'?'Oscuro':'Claro';
