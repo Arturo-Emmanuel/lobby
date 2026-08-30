@@ -1099,18 +1099,34 @@ html.revisando-sesion #app{display:none !important}
   .mcb-send svg{width:18px;height:18px}
 }
 
-/* ══════════ BOTTOM SHEET (3 puntitos suben desde abajo) ══════════ */
-@media(max-width:880px){
-  .room-info-drop{position:fixed!important;left:0!important;right:0!important;bottom:0!important;top:auto!important;
-    width:100%!important;min-width:0!important;border-radius:20px 20px 0 0!important;padding:10px 14px calc(20px + env(safe-area-inset-bottom))!important;
-    transform:translateY(100%);transition:transform .28s cubic-bezier(.2,.8,.3,1);display:flex!important;z-index:120;
-    box-shadow:0 -10px 40px rgba(0,0,0,.5)}
-  .room-info-drop.open{transform:translateY(0)}
-  .room-info-drop::before{content:'';display:block;width:40px;height:4px;border-radius:99px;background:var(--color-border);margin:2px auto 12px}
-  .room-info-drop .drop-item{padding:14px 12px;font-size:15px}
-  /* Fondo oscuro detrás del bottom sheet */
-  .room-info-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:119}
-  .room-info-backdrop.open{display:block}
+/* ══════════ HOJA DEL MENÚ ⋯ EN CELULAR (Problema 1) ══════════
+   Antes esto intentaba transformar el .room-info-drop del escritorio en una
+   hoja. No funcionaba nunca: ese elemento vive dentro de .rh-desktop-only, que
+   en celular es display:none, y un hijo de un padre oculto no se dibuja aunque
+   le pongas mil !important.
+
+   Ahora la hoja es un elemento propio que el JS cuelga del <body>, donde nadie
+   la puede ocultar. Vive fuera de todo @media a propósito: solo se crea en
+   celular, así que no necesita protección de tamaño. */
+.lobi-hoja-fondo{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:119;
+  opacity:0;transition:opacity .25s ease}
+.lobi-hoja-fondo.open{opacity:1}
+
+.lobi-hoja{position:fixed;left:0;right:0;bottom:0;z-index:120;
+  background:var(--color-card);border-top:1px solid var(--color-border);
+  border-radius:20px 20px 0 0;padding:10px 14px calc(20px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:4px;box-shadow:0 -10px 40px rgba(0,0,0,.5);
+  transform:translateY(100%);transition:transform .28s cubic-bezier(.2,.8,.3,1)}
+.lobi-hoja.open{transform:translateY(0)}
+/* La agarradera gris de arriba, para que se lea como una hoja deslizable */
+.lobi-hoja::before{content:'';display:block;width:40px;height:4px;border-radius:99px;
+  background:var(--color-border);margin:2px auto 12px}
+.lobi-hoja .drop-cats{display:flex;flex-wrap:wrap;gap:5px;padding:6px 8px 10px;
+  border-bottom:1px solid var(--color-border);margin-bottom:6px}
+/* Botones más altos: en celular se tocan con el dedo, no con el mouse */
+.lobi-hoja .drop-item{padding:14px 12px;font-size:15px}
+@media (prefers-reduced-motion:reduce){
+  .lobi-hoja,.lobi-hoja-fondo{transition-duration:.01s}
 }
 
 /* Slots de invitar: un círculo punteado + "+" por cada lugar vacío (compu y celular) */
@@ -4010,11 +4026,7 @@ function roomView(){
               <button class="rh-more cover-more" onclick="toggleRoomInfo()" title="Más opciones"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
             </div>
             ${renderMisionDestacada()}
-            <div class="room-info-drop" id="room-info-drop">
-              <div class="drop-cats">${gameTag(gid,l.mode)}${l.cats.map(c=>`<span class="cat-chip">${c}</span>`).join('')}</div>
-              <button class="drop-item" onclick="abrirGaleriaBanners()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg> Cambiar banner</button>
-              <button class="drop-item drop-danger" onclick="askLeaveLobi()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg> Salir del Lobi</button>
-            </div>
+            <div class="room-info-drop" id="room-info-drop">${contenidoMenuLobi()}</div>
           </div>
         </div>
         <div class="chat-box">
@@ -4305,31 +4317,73 @@ function formatoTiempoCorto(segs){
   return `${m}m`;
 }
 
-/* El menú "⋯" del header móvil: categorías, compat y salir (Problema 8). */
+/* ====== EL MENÚ "⋯" DEL LOBI (Problema 1) ===================================
+   EL BUG QUE HABÍA: el menú vivía dentro de la portada que lleva la clase
+   rh-desktop-only, y en celular esa clase es display:none!important. Un hijo
+   de un padre oculto NO se dibuja nunca, por más !important que le pongas.
+   Había 12 líneas de CSS para hacerlo subir desde abajo… todas inútiles.
+   El fondo negro sí se veía porque se colgaba del <body>, aparte.
+
+   LA SOLUCIÓN: no lo saco de la portada (en escritorio está posicionado
+   respecto de ella, y moverlo lo mandaría encima de la barra derecha). En vez
+   de eso, en celular armo una hoja aparte colgada del <body>, donde nada la
+   puede ocultar. Las dos comparten contenido: una sola función lo genera. */
+
+/* El contenido del menú, uno solo para escritorio y celular. Si mañana
+   agregamos las opciones de líder, aparecen en los dos sin duplicar nada. */
+function contenidoMenuLobi(){
+  const l = state.currentLobi;
+  if(!l) return '';
+  const gid = l.game || 'minecraft';
+  const cats = (l.cats||[]).map(c=>`<span class="cat-chip">${escapeHtml(String(c))}</span>`).join('');
+  return `<div class="drop-cats">${gameTag(gid,l.mode)}${cats}</div>
+    <button class="drop-item" onclick="cerrarRoomInfo();abrirGaleriaBanners()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg> Cambiar banner</button>
+    <button class="drop-item drop-danger" onclick="cerrarRoomInfo();askLeaveLobi()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg> Salir del Lobi</button>`;
+}
+
+function esPantallaChica(){
+  try{ return window.matchMedia('(max-width:880px)').matches; }
+  catch(e){ return false; }   // ante la duda, escritorio (que ya funcionaba)
+}
+
 function toggleRoomInfo(){
+  if(esPantallaChica()){ toggleHojaLobi(); return; }
   const d=document.getElementById('room-info-drop');
   if(d) d.classList.toggle('open');
-  actualizarBackdropInfo();
 }
+
+/* La hoja de celular: se crea colgada del <body>, así ningún padre oculto
+   se la puede comer. Se destruye al cerrarla. */
+function toggleHojaLobi(){
+  if(document.getElementById('lobi-hoja')){ cerrarRoomInfo(); return; }
+  if(!state.currentLobi) return;
+
+  const fondo=document.createElement('div');
+  fondo.id='lobi-hoja-fondo';
+  fondo.className='lobi-hoja-fondo';
+  fondo.onclick=cerrarRoomInfo;
+  document.body.appendChild(fondo);
+
+  const hoja=document.createElement('div');
+  hoja.id='lobi-hoja';
+  hoja.className='lobi-hoja';
+  hoja.innerHTML=contenidoMenuLobi();
+  document.body.appendChild(hoja);
+
+  /* Un respiro antes de prender la clase, si no el navegador no alcanza a
+     ver el estado inicial y la hoja aparece de golpe en vez de deslizarse. */
+  requestAnimationFrame(()=>{ fondo.classList.add('open'); hoja.classList.add('open'); });
+}
+
 function cerrarRoomInfo(){
   const d=document.getElementById('room-info-drop');
   if(d) d.classList.remove('open');
-  actualizarBackdropInfo();
-}
-/* Fondo oscuro detrás del bottom sheet en móvil */
-function actualizarBackdropInfo(){
-  const d=document.getElementById('room-info-drop');
-  let bd=document.getElementById('room-info-backdrop');
-  const abierto = d && d.classList.contains('open');
-  if(abierto && !bd){
-    bd=document.createElement('div');
-    bd.id='room-info-backdrop';
-    bd.className='room-info-backdrop open';
-    bd.onclick=cerrarRoomInfo;
-    document.body.appendChild(bd);
-  } else if(!abierto && bd){
-    bd.remove();
-  }
+
+  const fondo=document.getElementById('lobi-hoja-fondo');
+  if(fondo){ fondo.classList.remove('open'); setTimeout(()=>fondo.remove(),280); }
+
+  const hoja=document.getElementById('lobi-hoja');
+  if(hoja){ hoja.classList.remove('open'); setTimeout(()=>hoja.remove(),280); }
 }
 
 /* ====== OBJETIVOS (crear, arrastrar para editar, máx 7) ====== */
