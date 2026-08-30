@@ -689,6 +689,9 @@ html.revisando-sesion #app{display:none !important}
     border-bottom:none;pointer-events:none;
     background:linear-gradient(180deg,rgba(6,4,12,.95) 0%,rgba(6,4,12,.78) 45%,rgba(6,4,12,0) 100%)}
   .topbar > *{pointer-events:auto}
+  /* Se esconde al bajar y vuelve al subir (como TikTok o Instagram) */
+  .topbar{transition:transform .25s ease,opacity .2s ease}
+  .topbar.barra-oculta{transform:translateY(-110%);opacity:0}
   /* El contenido arranca debajo de la parte sólida de la barra */
   .content{padding-top:calc(74px + env(safe-area-inset-top))}
   /* En celular el espaciador está apagado porque la barra de búsqueda ya
@@ -1153,6 +1156,7 @@ html.revisando-sesion #app{display:none !important}
 .lobi-hoja .drop-item{padding:14px 12px;font-size:15px}
 @media (prefers-reduced-motion:reduce){
   .lobi-hoja,.lobi-hoja-fondo{transition-duration:.01s}
+  .topbar{transition-duration:.01s}
 }
 
 /* Slots de invitar: un círculo punteado + "+" por cada lugar vacío (compu y celular) */
@@ -5194,6 +5198,9 @@ function navTo(view){
   /* Marca la app como "estoy en Buscar" para que el CSS esconda la barra
      global y no queden dos buscadores. (Problema 4) */
   document.getElementById('app').classList.toggle('viewing-search', view==='search');
+  /* Trampa 3: cambiar de sección siempre devuelve la barra. Si no, podrías
+     aterrizar en una pantalla sin barra y sin saber cómo hacerla volver. */
+  if(typeof mostrarBarra==='function'){ mostrarBarra(); ultimoScrollBarra=0; }
   document.querySelectorAll('.nav-item[data-view]').forEach(n=>n.classList.toggle('active',n.dataset.view===view));
   document.querySelectorAll('.mnav-item[data-mview]').forEach(n=>n.classList.toggle('active',n.dataset.mview===view));
   content.scrollTop=0;
@@ -5245,6 +5252,50 @@ async function cerrarSesion(){
   }catch(e){ /* aunque falle, recargamos igual */ }
   location.reload();   // arranque limpio: se borra todo el estado en memoria
 }
+
+/* ====== LA BARRA SE ESCONDE AL BAJAR (estilo TikTok/Instagram) ==============
+   Cuatro cuidados, uno por cada trampa clásica de esta función:
+
+   1. UMBRAL — el dedo nunca hace un movimiento limpio: el navegador reporta
+      micro-movimientos de 1 o 2 píxeles para los dos lados. Sin umbral, la
+      barra parpadearía sin parar.
+   2. Math.max(0, ...) — al llegar al tope y seguir arrastrando, el celular
+      estira la página y el scroll da números NEGATIVOS. Si no lo aplasto a
+      cero, el rebote se lee como "subió muchísimo" y la barra salta sola.
+   3. ZONA_SEGURA — arriba del todo la barra siempre se ve. Es donde el usuario
+      la busca.
+   4. mostrarBarra() en cada cambio de sección (está en navTo) — así nunca
+      aterrizás en una pantalla sin barra y sin saber cómo traerla.
+
+   Solo actúa en celular: en compu la clase existe pero el CSS que la usa vive
+   dentro del @media, así que no hace nada. */
+const UMBRAL_BARRA = 8;      // píxeles mínimos para hacerle caso al movimiento
+const ZONA_SEGURA  = 60;     // arriba de esto, la barra siempre visible
+let ultimoScrollBarra = 0;
+
+function mostrarBarra(){
+  const b=document.querySelector('.topbar');
+  if(b) b.classList.remove('barra-oculta');
+}
+function ocultarBarra(){
+  const b=document.querySelector('.topbar');
+  if(b) b.classList.add('barra-oculta');
+}
+
+(function vigilarScroll(){
+  const cont=document.querySelector('.content');
+  if(!cont) return;
+  cont.addEventListener('scroll', function(){
+    if(!esPantallaChica()) return;            // en compu, ni me meto
+    const y  = Math.max(0, cont.scrollTop);   // trampa 2: el rebote
+    const dy = y - ultimoScrollBarra;
+    if(Math.abs(dy) < UMBRAL_BARRA) return;   // trampa 1: el temblor
+    if(y < ZONA_SEGURA)  mostrarBarra();      // trampa 4: arriba siempre se ve
+    else if(dy > 0)      ocultarBarra();      // bajando → se va
+    else                 mostrarBarra();      // subiendo → vuelve
+    ultimoScrollBarra = y;
+  }, {passive:true});                          // passive: no traba el scroll
+})();
 
 syncUserUI();navTo('home');
 revisarSesionGuardada();
