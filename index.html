@@ -588,12 +588,32 @@ html.revisando-sesion #app{display:none !important}
 .mc-cover-img{background-size:cover;background-position:center}
 
 /* ====== crear lobi: elegir juego ====== */
-/* Pestañas dentro de Mensajes en celular (Problema 3) */
-.msg-tabs{margin-bottom:18px}
-.msg-tabs .chip{display:inline-flex;align-items:center;gap:6px}
+/* ══ Pestañas dentro de Mensajes en celular (Problema 3) ══
+   Subrayado en vez de burbujas: una burbuja redonda dice "soy una opción,
+   elegime" (por eso las usamos para filtrar en Buscar). Acá no estás
+   filtrando, estás cambiando de sección — y el idioma universal para eso es
+   el subrayado.
+
+   flex:1 en cada pestaña es lo que impide que una se baje de línea: las tres
+   se reparten el ancho exacto, sin importar la fuente ni el largo del texto. */
+.msg-tabs{display:flex;gap:2px;margin:0 0 18px;
+  border-bottom:1px solid var(--color-border)}
+.msg-tab{flex:1;min-width:0;background:none;border:none;font-family:inherit;
+  color:var(--color-muted);font-size:14px;font-weight:600;padding:12px 4px;
+  cursor:pointer;position:relative;display:flex;align-items:center;
+  justify-content:center;gap:6px;white-space:nowrap;transition:color .18s}
+.msg-tab.on{color:var(--color-text)}
+.msg-tab:active{opacity:.7}
+/* El subrayado crece desde el centro al activarse */
+.msg-tab::after{content:'';position:absolute;left:14%;right:14%;bottom:-1px;height:2.5px;
+  border-radius:3px;background:var(--grad);transform:scaleX(0);transition:transform .22s ease}
+.msg-tab.on::after{transform:scaleX(1)}
+@media(max-width:360px){ .msg-tab{font-size:13px;gap:4px} }
+@media (prefers-reduced-motion:reduce){ .msg-tab::after{transition-duration:.01s} }
+
 .tab-badge{background:var(--color-danger);color:#fff;font-size:10px;font-weight:700;
   min-width:17px;height:17px;border-radius:99px;display:inline-flex;align-items:center;
-  justify-content:center;padding:0 5px;line-height:1}
+  justify-content:center;padding:0 5px;line-height:1;flex-shrink:0}
 
 /* Interruptor ON/OFF (Problema 9: el objetivo principal es opcional) */
 .switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;user-select:none}
@@ -3528,10 +3548,10 @@ function messagesView(){
     }
 
     return `<div class="hero-line">Mensajes</div><div class="hero-sub">Sigue la conversación con tu gente.</div>
-      <div class="chip-grid msg-tabs">
-        <button class="chip ${tab==='chats'?'sel':''}" onclick="cambiarPestanaMensajes('chats')">💬 Chats</button>
-        <button class="chip ${tab==='amigos'?'sel':''}" onclick="cambiarPestanaMensajes('amigos')">👥 Amigos</button>
-        <button class="chip ${tab==='solicitudes'?'sel':''}" onclick="cambiarPestanaMensajes('solicitudes')">✉️ Solicitudes${chapa}</button>
+      <div class="msg-tabs">
+        <button class="msg-tab ${tab==='chats'?'on':''}" onclick="cambiarPestanaMensajes('chats')">Chats</button>
+        <button class="msg-tab ${tab==='amigos'?'on':''}" onclick="cambiarPestanaMensajes('amigos')">Amigos</button>
+        <button class="msg-tab ${tab==='solicitudes'?'on':''}" onclick="cambiarPestanaMensajes('solicitudes')">Solicitudes${chapa}</button>
       </div>
       ${cuerpo}`;
   }
