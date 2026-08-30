@@ -134,6 +134,9 @@ html.revisando-sesion #app{display:none !important}
 .topbar{display:flex;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--color-border);flex-shrink:0;position:relative}
 /* Dentro del Lobi: se oculta el buscador de arriba (queda limpio) */
 .app.viewing-room .topbar-search{display:none}
+/* Dentro de "Buscar" tampoco: esa sección ya tiene su propio buscador, y tener
+   dos al mismo tiempo confundía. (Problema 4) */
+.app.viewing-search .topbar-search{display:none}
 .app.viewing-room .topbar{justify-content:flex-end}
 .search{flex:1;max-width:460px;display:flex;align-items:center;gap:10px;background:var(--color-card);border:1px solid var(--color-border);border-radius:12px;padding:10px 14px}
 .search input{flex:1;background:none;border:none;color:var(--color-text);font-size:14px}
@@ -1249,7 +1252,7 @@ html.revisando-sesion #app{display:none !important}
   <div class="main">
     <div class="topbar">
       <div class="brand-row mobile-topbar-only" style="gap:9px"><img class="brand-logo-img" data-lobbylogo src="" style="width:34px;height:34px"><div class="brand-name" style="font-size:20px">Lobby</div></div>
-      <div class="search topbar-search"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input type="text" id="search-top" placeholder="Buscar jugadores o Lobis…" oninput="alBuscar(this.value)"></div>
+      <div class="search topbar-search"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input type="text" id="search-top" placeholder="Buscar jugadores o Lobis…" onfocus="irABuscar()" oninput="alBuscar(this.value)"></div>
       <div class="topbar-spacer"></div>
       <button class="theme-toggle mobile-topbar-only" id="theme-toggle" onclick="toggleTheme()" title="Cambiar tema" style="margin-right:10px"></button>
       <button class="icon-btn mobile-topbar-only" id="notif-btn" onclick="toggleNotif(event)"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg><span class="badge hidden" id="notif-badge-mobile"></span></button>
@@ -3272,8 +3275,33 @@ let pestanaBusqueda = 'gente';   // 'gente' | 'lobis'
 
 function alBuscar(v){
   busqueda = (v||'').trim();
-  if(state.view !== 'search'){ navTo('search'); }
+  if(state.view !== 'search'){ navTo('search'); enfocarBuscador(); }
   else { pintarResultados(); }
+}
+
+/* ====== LA BARRA GLOBAL LLEVA AL BUSCADOR (Problema 4) ======================
+   Antes tocabas la barra de arriba y no pasaba nada hasta que escribías. Y una
+   vez adentro de "Buscar" quedaban DOS buscadores en pantalla.
+
+   Ahora: apenas tocás la barra global, te lleva a Buscar (donde esa barra se
+   esconde por CSS) y el cursor cae solo en el buscador de la sección. Un solo
+   toque y ya podés escribir. */
+function irABuscar(){
+  if(state.view === 'search'){ enfocarBuscador(); return; }
+  navTo('search');
+  enfocarBuscador();
+}
+
+function enfocarBuscador(){
+  /* Un respiro para que navTo() termine de dibujar la sección antes de buscar
+     el campo. Y preventScroll para que la página no pegue un salto raro. */
+  setTimeout(()=>{
+    const inp = document.getElementById('search-page-input');
+    if(!inp) return;
+    try{ inp.focus({preventScroll:true}); }catch(e){ inp.focus(); }
+    const n = (inp.value||'').length;
+    try{ inp.setSelectionRange(n,n); }catch(e){}   // cursor al final de lo escrito
+  }, 30);
 }
 
 function cambiarPestanaBusqueda(cual){
@@ -4866,7 +4894,45 @@ function showProfilePopover(e,name){
   pop.classList.add('active');
   const px=Math.min(e.clientX+10,window.innerWidth-300),py=Math.min(e.clientY-10,window.innerHeight-360);
   pop.style.left=Math.max(12,px)+'px';pop.style.top=Math.max(12,py)+'px';
+  ubicarPopover(e, pop);
 }
+/* ====== DÓNDE CAE LA TARJETA DE PERFIL (Problema 5) =========================
+   Antes: siempre a la DERECHA del clic, y si no cabía se la empujaba contra el
+   borde. Como los miembros están en la columna derecha, la tarjeta terminaba
+   siempre metida ahí, apretada contra el borde y como si fuera parte del panel.
+
+   Ahora: si no cabe a la derecha, se abre hacia la IZQUIERDA del clic. Así se
+   mete parcialmente sobre el chat y se siente flotando encima de la interfaz,
+   que es como lo pediste.
+
+   OJO — EN CELULAR NO CAMBIA NADA: allá el CSS fija left/right/top con
+   !important, y un estilo en línea como el de acá no le gana a un !important.
+   O sea que la app móvil ignora esta función por completo, a propósito. */
+function ubicarPopover(e, pop){
+  try{
+    const MARGEN = 12, SEPARACION = 12;
+    const ancho = pop.offsetWidth  || 280;
+    const alto  = pop.offsetHeight || 360;
+    const vw = window.innerWidth, vh = window.innerHeight;
+
+    let x;
+    if(e.clientX + SEPARACION + ancho + MARGEN <= vw){
+      x = e.clientX + SEPARACION;              // cabe a la derecha: como siempre
+    }else{
+      x = e.clientX - SEPARACION - ancho;      // no cabe: se va hacia el chat
+    }
+    x = Math.max(MARGEN, Math.min(x, vw - ancho - MARGEN));
+
+    /* Vertical: la centro un poco sobre el clic y la mantengo dentro de la
+       pantalla, para que no se corte por abajo cuando tocás al último miembro. */
+    let y = e.clientY - 40;
+    y = Math.max(MARGEN, Math.min(y, vh - alto - MARGEN));
+
+    pop.style.left = x + 'px';
+    pop.style.top  = y + 'px';
+  }catch(err){ /* si algo falla, queda donde la dejó el cálculo anterior */ }
+}
+
 function closePopover(){const p=document.getElementById('popover');if(p)p.classList.remove('active');}
 
 /* ============ ENCUESTAS ============ */
@@ -5096,6 +5162,9 @@ function navTo(view){
   if(view==='room'){if(!state.currentLobi){navTo('lobis');return;}content.classList.add('in-room');document.getElementById('app').classList.add('viewing-room');c.classList.add('room-host');c.innerHTML=roomView();setTimeout(scrollChat,40);}
   else if(view==='messages'&&openDM){content.classList.add('in-room');document.getElementById('app').classList.remove('viewing-room');c.classList.add('room-host');c.innerHTML=messagesView();setTimeout(scrollDM,40);}
   else{content.classList.remove('in-room');document.getElementById('app').classList.remove('viewing-room');c.classList.remove('room-host');if(view==='messages')c.innerHTML=messagesView();else c.innerHTML=(views[view]||views.home)();}
+  /* Marca la app como "estoy en Buscar" para que el CSS esconda la barra
+     global y no queden dos buscadores. (Problema 4) */
+  document.getElementById('app').classList.toggle('viewing-search', view==='search');
   document.querySelectorAll('.nav-item[data-view]').forEach(n=>n.classList.toggle('active',n.dataset.view===view));
   document.querySelectorAll('.mnav-item[data-mview]').forEach(n=>n.classList.toggle('active',n.dataset.mview===view));
   content.scrollTop=0;
