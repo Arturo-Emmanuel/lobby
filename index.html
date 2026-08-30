@@ -3253,7 +3253,16 @@ async function finishOnboarding(){
 }
 document.addEventListener('click',e=>{
   const chip=e.target.closest('.chip');
-  if(chip){const grid=chip.parentElement;if(grid.hasAttribute('data-single')){grid.querySelectorAll('.chip').forEach(c=>c.classList.remove('sel'));chip.classList.add('sel');}else chip.classList.toggle('sel');}
+  /* Este vigilante pinta los chips de TODA la app. Pero los del panel de
+     juegos ya tienen su propio dueño (setDrawerField), que además guarda la
+     lista de opciones marcadas. Si los dos tocan el mismo chip, se pisan: uno
+     lo prende y el otro lo apaga en el mismo clic. Por eso acá los salteo:
+     el que lleva data-fieldkey se pinta solo. */
+  if(chip && !chip.parentElement.hasAttribute('data-fieldkey')){
+    const grid=chip.parentElement;
+    if(grid.hasAttribute('data-single')){grid.querySelectorAll('.chip').forEach(c=>c.classList.remove('sel'));chip.classList.add('sel');}
+    else chip.classList.toggle('sel');
+  }
   if(!e.target.closest('.popover')&&!e.target.closest('[data-pop]'))closePopover();
   if(!e.target.closest('.emoji-pop')&&!e.target.closest('#emoji-trigger')){const ep=document.getElementById('emoji-pop');if(ep)ep.classList.remove('active');}
   if(!e.target.closest('#notif-panel')&&!e.target.closest('#notif-btn'))document.getElementById('notif-panel').classList.remove('active');
