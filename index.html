@@ -743,6 +743,16 @@ html.revisando-sesion #app{display:none !important}
   /* Se esconde al bajar y vuelve al subir (como TikTok o Instagram) */
   .topbar{transition:transform .25s ease,opacity .2s ease}
   .topbar.barra-oculta{transform:translateY(-110%);opacity:0}
+
+  /* ══ Chat privado a pantalla completa (arreglo) ══
+     La conversación tiene su propio encabezado con la flechita de volver.
+     Antes la barra flotante le caía encima y tapaba esa flecha: no había
+     forma de salir del chat. Ahora la barra global se va, como pasa dentro
+     del Lobi, y el chat manda en su pantalla. */
+  .app.viewing-dm .topbar{display:none}
+  .dm-open{padding-top:calc(10px + env(safe-area-inset-top))}
+  .dm-open-head{position:sticky;top:0;z-index:5;background:var(--color-bg);
+    padding-bottom:12px;margin-bottom:8px}
   /* El contenido arranca debajo de la parte sólida de la barra */
   .content{padding-top:calc(74px + env(safe-area-inset-top))}
   /* En celular el espaciador está apagado porque la barra de búsqueda ya
@@ -1508,16 +1518,19 @@ const GAME_CATALOG={
     styles:['Casual','Chill','Competitivo','Social'],
     objectives:['Hacer amigos','Construir','Avanzar','Ganar','Explorar'],
     // preguntas del PERFIL del juego (panel deslizable)
+    /* multi:true  → podés marcar varias (nadie juega un solo modo)
+       bloqueante  → si no comparten NINGUNA opción, no pueden jugar juntos
+                     de verdad (Java y Bedrock son mundos separados) */
     fields:[
-      {key:'favmode',label:'¿Modo favorito?',options:['Survival','SMP','BedWars','Creativo','PvP','SkyWars','Hardcore','GensOp','Oneblock']},
-      {key:'level',label:'Tu nivel',options:['Principiante','Medio','Avanzado']},
-      {key:'version',label:'¿Qué versión juegas?',options:['Java','Bedrock']},
+      {key:'favmode',label:'¿Modos favoritos?',options:['Survival','SMP','BedWars','Creativo','PvP','SkyWars','Hardcore','GensOp','Oneblock'],multi:true,peso:20},
+      {key:'level',label:'Tu nivel',options:['Principiante','Medio','Avanzado'],peso:10,escala:true},
+      {key:'version',label:'¿Qué versión juegas?',options:['Java','Bedrock'],multi:true,bloqueante:true},
     ],
   },
   /* Para agregar un juego nuevo en el futuro: copia este bloque, cambia cover/logo/modos/styles/objectives/fields.
      Ejemplos (no disponibles aún, se ven como "Pronto"): */
-  valorant:{id:'valorant',name:'Valorant',cover:'linear-gradient(135deg,#ff4655,#7a1f28)',emoji:'🎯',available:false,modes:['Competitivo','Sin rango','Deathmatch'],styles:['Casual','Competitivo','Tryhard'],objectives:['Subir rango','Hacer amigos','Pasar el rato'],fields:[{key:'level',label:'Tu rango',options:['Hierro-Bronce','Plata-Oro','Platino+']},{key:'role',label:'Tu rol',options:['Duelista','Centinela','Iniciador','Controlador']}]},
-  fortnite:{id:'fortnite',name:'Fortnite',cover:'linear-gradient(135deg,#8a4fff,#3a1f7a)',emoji:'🔫',available:false,modes:['Battle Royale','Zero Build','Creativo'],styles:['Casual','Competitivo','Social'],objectives:['Ganar','Hacer amigos','Construir'],fields:[{key:'level',label:'Tu nivel',options:['Casual','Intermedio','Pro']},{key:'platform',label:'Plataforma',options:['PC','Consola','Móvil']}]},
+  valorant:{id:'valorant',name:'Valorant',cover:'linear-gradient(135deg,#ff4655,#7a1f28)',emoji:'🎯',available:false,modes:['Competitivo','Sin rango','Deathmatch'],styles:['Casual','Competitivo','Tryhard'],objectives:['Subir rango','Hacer amigos','Pasar el rato'],fields:[{key:'level',label:'Tu rango',options:['Hierro-Bronce','Plata-Oro','Platino+'],peso:10,escala:true},{key:'role',label:'Tus roles',options:['Duelista','Centinela','Iniciador','Controlador'],multi:true,peso:20}]},
+  fortnite:{id:'fortnite',name:'Fortnite',cover:'linear-gradient(135deg,#8a4fff,#3a1f7a)',emoji:'🔫',available:false,modes:['Battle Royale','Zero Build','Creativo'],styles:['Casual','Competitivo','Social'],objectives:['Ganar','Hacer amigos','Construir'],fields:[{key:'level',label:'Tu nivel',options:['Casual','Intermedio','Pro'],peso:10,escala:true},{key:'platform',label:'Plataformas',options:['PC','Consola','Móvil'],multi:true,bloqueante:true}]},
 };
 
 /* ====== SISTEMA DE BANNERS POR JUEGO ======
@@ -1808,12 +1821,121 @@ function desuscribirseAmistades(){
 let realPlayers=null;
 
 /* Compatibilidad simple: compara estilo y país entre yo y el otro usuario. */
-function calcCompat(otro){
-  let score=50; // base
-  if(otro.estilo && state.me.style && otro.estilo===state.me.style) score+=35; // mismo estilo suma harto
-  if(otro.pais && state.me.pais && otro.pais===state.me.pais) score+=15;       // mismo país suma un poco
-  return Math.min(99, score);
+/* ====== PREFERENCIAS DE JUEGO EN LA NUBE (Mejora 1) =========================
+   Antes vivían solo en memoria: elegías Survival/Medio/Java, cerrabas sesión,
+   y se perdía todo. Ahora van a perfiles.juegos, una columna JSON.
+
+   ¿Por qué JSON y no una columna por dato? Porque cada juego pregunta cosas
+   distintas: Minecraft quiere modo/nivel/versión, Valorant rango/rol, Fortnite
+   nivel/plataforma. Con columnas fijas, agregar un juego sería agregar
+   columnas. Así, agregar un juego es cero SQL. */
+async function guardarJuegosEnLaNube(){
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    const paquete = {
+      lista: state.me.games || [],
+      detalles: state.me.gameDetails || {}
+    };
+    const { error } = await sb.from('perfiles').update({ juegos: paquete }).eq('id_usuario', user.id);
+    if(error) throw error;
+  }catch(e){ toast('⚠️ No se guardaron tus preferencias: ' + e.message); }
 }
+
+/* ====== COMPATIBILIDAD (Mejora 1 · manual sección 13) =======================
+   La fórmula vieja miraba solo estilo y país, así que siempre daba los mismos
+   cuatro números. Ahora usa los pesos del manual.
+
+   DECISIÓN IMPORTANTE: solo cuenta los factores que AMBOS completaron.
+   Si comparara sobre el total siempre, alguien con el perfil a medias sacaría
+   30% con todo el mundo — y eso no significa "incompatibles", significa "no
+   sabemos". Al dividir por lo que sí se pudo comparar, el porcentaje dice lo
+   que de verdad sabemos, y sube en precisión a medida que completás el perfil.
+
+   Pendiente: "Objetivos" (15 puntos en el manual) todavía no se guarda por
+   persona, solo por Lobi. Cuando exista, se suma acá. */
+
+/* Devuelve el detalle completo: el porcentaje, si comparten algún juego, y en
+   cuál encajan mejor. calcCompat() de abajo es el atajo para cuando solo hace
+   falta el número. */
+function detalleCompat(otro){
+  const misJuegos = state.me.games || [];
+  /* 'otro' puede llegar de dos lugares: la fila cruda de Supabase (donde
+     'juegos' quizás venga como texto) o un objeto ya armado. Acepto los dos. */
+  let sus = (otro && otro.juegos) || {};
+  if(typeof sus === 'string'){ try{ sus = JSON.parse(sus); }catch(e){ sus = {}; } }
+  const susJuegos = sus.lista || [];
+  const enComun = misJuegos.filter(g => susJuegos.includes(g));
+
+  /* Estilo y país no dependen de qué juego miremos: se calculan una sola vez */
+  let baseP = 0, baseQ = 0;
+  if(state.me.style && otro.estilo){ baseQ += 20; if(state.me.style === otro.estilo) baseP += 20; }
+  if(state.me.pais  && otro.pais ){ baseQ += 5;  if(state.me.pais  === otro.pais ) baseP += 5;  }
+
+  /* Puntaje mirando UN juego concreto.
+     Ya no hay campos escritos a mano: recorre los que ESE juego declara en el
+     catálogo. Así Valorant compara rango Y rol, Fortnite nivel Y plataforma, y
+     cualquier juego que agregues después funciona solo, sin tocar la fórmula. */
+  const puntuar = (juego, comparten)=>{
+    let p = baseP, q = baseQ;
+
+    /* Juego en común — 30 */
+    if(misJuegos.length && susJuegos.length){ q += 30; if(comparten) p += 30; }
+
+    const mio  = (state.me.gameDetails || {})[juego] || {};
+    const suyo = (sus.detalles || {})[juego] || {};
+    const campos = ((GAME_CATALOG[juego]||{}).fields) || [];
+    let bloqueado = false;
+
+    campos.forEach(f=>{
+      const a = aLista(mio[f.key]), b = aLista(suyo[f.key]);
+      if(!a.length || !b.length) return;          // alguno no lo llenó: no cuenta
+      const comun = a.filter(x=>b.includes(x));
+
+      /* CANDADO: hay cosas que no son "encajan menos", son "no pueden".
+         Java y Bedrock son mundos separados; PC y Consola a veces también.
+         Si ninguno de los dos comparte una sola opción, el porcentaje se
+         corta por más que todo lo demás coincida. */
+      if(f.bloqueante){ if(!comun.length) bloqueado = true; return; }
+
+      const peso = f.peso || 10;
+      q += peso;
+
+      /* Campos con escala (nivel, rango): los vecinos suman la mitad. Un
+         Principiante y un Medio se entienden mejor que un Principiante y un
+         Avanzado, y eso un simple "¿son iguales?" lo perdía. */
+      if(f.escala && !comun.length){
+        const ia = f.options.indexOf(a[0]), ib = f.options.indexOf(b[0]);
+        if(ia >= 0 && ib >= 0 && Math.abs(ia-ib) === 1) p += peso/2;
+        return;
+      }
+      if(comun.length) p += peso;
+    });
+
+    /* Sin nada que comparar todavía: neutro, ni alto ni bajo. */
+    if(q === 0) return bloqueado ? 35 : 70;
+    /* Piso de 40: aunque no coincidan en nada, sigue siendo alguien con quien
+       se puede jugar. Un 3% desanimaría sin motivo. */
+    const nota = Math.max(40, Math.min(99, Math.round((p / q) * 100)));
+    /* El candado no lo manda a cero: capaz mañana instala la otra versión.
+       Pero nunca puede salir arriba como "muy compatible". */
+    return bloqueado ? Math.min(35, nota) : nota;
+  };
+
+  /* VARIOS JUEGOS EN COMÚN → me quedo con el MEJOR.
+     Alcanza con que encajen en UNO para que valga la pena jugar juntos. Si
+     promediara, compartir más juegos podría BAJARLES el puntaje — o sea que
+     tener más cosas en común los alejaría. Eso sería al revés de lo lógico. */
+  if(enComun.length){
+    let mejor = 0, cual = enComun[0];
+    enComun.forEach(g=>{ const v = puntuar(g, true); if(v > mejor){ mejor = v; cual = g; } });
+    return { compat: mejor, juegoEnComun: true, juego: cual };
+  }
+
+  return { compat: puntuar(misJuegos[0] || 'minecraft', false), juegoEnComun: false, juego: null };
+}
+
+function calcCompat(otro){ return detalleCompat(otro).compat; }
 
 /* Lee los usuarios reales de la tabla perfiles (menos yo mismo) y les calcula compatibilidad. */
 /* ====== DIRECTORIO DE PERFILES (Problema 6) =================================
@@ -1879,9 +2001,18 @@ async function cargarUsuariosReales(){
       };
     });
 
+    /* Las preferencias del otro, para poder compararlas con las mías.
+       Vienen como JSON; algunos clientes las devuelven ya como objeto y otros
+       como texto, así que contemplo los dos casos. (Mejora 1) */
+    const leerJuegos = (v)=>{
+      if(!v) return {};
+      try{ return typeof v === 'string' ? JSON.parse(v) : v; }catch(e){ return {}; }
+    };
+
     realPlayers = data
       .filter(p => !user || p.id_usuario !== user.id)  // no me recomiendo a mí mismo
       .map(p => ({
+        juegos: leerJuegos(p.juegos),
         name: p.nombre || p.nick || 'Jugador',
         id_usuario: p.id_usuario,        // necesario para mandarle solicitud (Problema 11)
         avatarFile: p.avatar || null,    // su foto de perfil en Storage (Bug A)
@@ -1889,6 +2020,7 @@ async function cargarUsuariosReales(){
         pais: p.pais || 'Costa Rica',
         game: p.estilo ? ('Estilo · ' + p.estilo) : 'Jugador de Lobby',
         compat: calcCompat(p),
+        juegoEnComun: detalleCompat(p).juegoEnComun,   // para ordenarlos abajo
         seed: p.nick || p.nombre || 'user',
         bg: 'c84dff',
         rating: p.reputacion || 5.0,
@@ -1899,7 +2031,11 @@ async function cargarUsuariosReales(){
         goals: ['Jugar y hacer amigos'],
         real: true
       }))
-      .sort((a,b)=> b.compat - a.compat); // más compatibles primero
+      /* Primero los que juegan algo tuyo (ordenados por compatibilidad), y al
+         final los que no comparten ningún juego. No los escondo: hoy son poca
+         gente y esconderlos dejaría Lobby vacío — pero tampoco los mezclo
+         arriba, porque la promesa es encontrar con quién JUGAR. */
+      .sort((a,b)=> (b.juegoEnComun?1:0) - (a.juegoEnComun?1:0) || b.compat - a.compat);
   } catch(e){
     realPlayers = [];
   }
@@ -2968,6 +3104,14 @@ async function cargarMiPerfil(){
       if(p.estilo) state.me.style = p.estilo;
       if(p.pais)   state.me.pais = p.pais;
       if(p.nick)   state.nick = p.nick;
+
+      /* Mis preferencias de juego guardadas (Mejora 1). Si la cuenta es vieja
+         y todavía no tiene nada, se queda con lo que ya había en memoria. */
+      if(p.juegos){
+        const j = typeof p.juegos === 'string' ? JSON.parse(p.juegos) : p.juegos;
+        if(j && Array.isArray(j.lista) && j.lista.length) state.me.games = j.lista;
+        if(j && j.detalles) state.me.gameDetails = j.detalles;
+      }
       // Mi foto de perfil guardada (Bug A): link público permanente
       if(p.avatar){
         state.avatarFile = p.avatar;
@@ -3093,7 +3237,10 @@ async function finishOnboarding(){
         pais: region,
         nick: state.displayName.toLowerCase().replace(/\s+/g,''),
         reputacion: 5.0,
-        id_usuario: user.id
+        id_usuario: user.id,
+        /* Los juegos elegidos en el onboarding se guardan desde el minuto
+           cero, para que la compatibilidad tenga con qué trabajar. (Mejora 1) */
+        juegos: { lista: state.me.games || [], detalles: state.me.gameDetails || {} }
       });
       if(error) throw error;
       toast('✅ ¡Perfil guardado!');
@@ -3713,7 +3860,10 @@ function viewFullProfile(name){closePopover();state._profileTarget=name;navTo._k
 function gameDetailComplete(gid){
   const cat=GAME_CATALOG[gid];if(!cat)return true;
   const d=state.me.gameDetails[gid]||{};
-  return cat.fields.every(f=>d[f.key]);
+  /* aLista y no d[f.key] a secas: ahora los campos de varias opciones guardan
+     una lista, y una lista VACÍA es "verdadera" en JavaScript. Sin esto, un
+     campo que marcaste y después desmarcaste contaría como completo. */
+  return cat.fields.every(f=>aLista(d[f.key]).length > 0);
 }
 function anyGameIncomplete(){return state.me.games.some(g=>!gameDetailComplete(g));}
 function myProfileView(){
@@ -3749,7 +3899,7 @@ function openGameDrawer(gid){
   drawerGame=gid;drawerDraft=Object.assign({},state.me.gameDetails[gid]||{});
   const fields=cat.fields.map(f=>`
     <div class="gd-field"><div class="gdf-label">${f.label}</div>
-      <div class="chip-grid" data-single data-fieldkey="${f.key}">${f.options.map(o=>`<button class="chip ${drawerDraft[f.key]===o?'sel':''}" onclick="setDrawerField('${f.key}','${o}')">${o}</button>`).join('')}</div></div>`).join('');
+      <div class="chip-grid" ${f.multi?'':'data-single'} data-fieldkey="${f.key}">${f.options.map(o=>`<button class="chip ${aLista(drawerDraft[f.key]).includes(o)?'sel':''}" onclick="setDrawerField('${f.key}','${escapeHtml(o).replace(/'/g,"\\'")}',${f.multi?'true':'false'})">${o}</button>`).join('')}</div></div>`).join('');
   document.getElementById('game-drawer').innerHTML=`
     <div class="gd-cover" style="${coverBg(cat)}"><button class="gd-close" onclick="closeGameDrawer()"><svg fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
     <div class="gd-body"><div class="gd-title" style="display:flex;align-items:center;gap:10px">${cat.logo?`<img src="${cat.logo}" style="height:22px">`:cat.name}</div><div class="gd-sub">Personaliza cómo juegas ${cat.name}. Esto ayuda a encontrar gente compatible.</div>
@@ -3758,14 +3908,36 @@ function openGameDrawer(gid){
   document.getElementById('game-drawer-overlay').classList.add('active');
   requestAnimationFrame(()=>document.getElementById('game-drawer').classList.add('active'));
 }
-function setDrawerField(key,val){
-  drawerDraft[key]=val;
+/* Convierte lo guardado en una lista, venga como venga.
+   Los perfiles viejos guardaron un texto suelto ("Survival"); los nuevos
+   guardan una lista (["Survival","BedWars"]). Esta función los empareja para
+   que el resto del código no tenga que preguntarse cuál es cuál. */
+function aLista(v){
+  if(v == null || v === '') return [];
+  return Array.isArray(v) ? v.filter(Boolean) : [v];
+}
+
+function setDrawerField(key,val,multi){
+  if(multi){
+    /* Varias opciones: cada toque prende o apaga la suya */
+    const actuales = aLista(drawerDraft[key]);
+    const i = actuales.indexOf(val);
+    if(i >= 0) actuales.splice(i,1); else actuales.push(val);
+    drawerDraft[key] = actuales;
+  }else{
+    /* Una sola: la nueva reemplaza a la anterior (tu nivel es uno solo) */
+    drawerDraft[key] = val;
+  }
   const grid=document.querySelector(`#game-drawer .chip-grid[data-fieldkey="${key}"]`);
-  if(grid)grid.querySelectorAll('.chip').forEach(c=>c.classList.toggle('sel',c.textContent===val));
+  if(grid){
+    const marcadas = aLista(drawerDraft[key]);
+    grid.querySelectorAll('.chip').forEach(c=>c.classList.toggle('sel', marcadas.includes(c.textContent)));
+  }
 }
 function saveGameDrawer(){
   if(!drawerGame)return;
   state.me.gameDetails[drawerGame]=Object.assign({},drawerDraft);
+  guardarJuegosEnLaNube();   // ahora sí queda guardado de verdad (Mejora 1)
   closeGameDrawer();
   toast('✅ Juego actualizado');
   updateProfileAlert();
@@ -3790,6 +3962,7 @@ function openAddGame(){
 function addGame(gid){
   if(!state.me.games.includes(gid)){state.me.games.push(gid);state.me.gameDetails[gid]={};}
   closeModal('modal-add-game');
+  guardarJuegosEnLaNube();   // el juego nuevo también se guarda (Mejora 1)
   toast('✅ Juego agregado. ¡Complétalo!');
   updateProfileAlert();
   if(state.view==='profile')refrescarVista();
@@ -4252,12 +4425,23 @@ function inviteCardHtml(datos, fromMe){
   const clase = est.clave==='aceptada' ? 'inv-aceptada'
               : (est.activa ? '' : 'inv-inactiva');
 
-  /* Cabecera: cambia según quién mira y cómo terminó */
-  const titulo = est.clave==='aceptada' ? '✓ Te uniste al Lobi'
+  /* El MISMO hecho se cuenta distinto según de qué lado estés.
+     "Te uniste al Lobi" tiene sentido para quien aceptó; para quien invitó,
+     lo que pasó fue que "Francisco se unió a tu Lobi". Antes los dos veían
+     el texto del que acepta, y al que invitaba le quedaba raro. */
+  const otro = inv ? (fromMe ? inv.para_nombre : inv.de_nombre) : '';
+  let textoEstado = est.texto;
+  if(fromMe){
+    if(est.clave==='aceptada')  textoEstado = `${otro} se unió a tu Lobi`;
+    if(est.clave==='rechazada') textoEstado = `${otro} rechazó la invitación`;
+  }
+
+  const titulo = est.clave==='aceptada'
+               ? (fromMe ? `✓ ${otro} se unió` : '✓ Te uniste al Lobi')
                : fromMe ? 'Invitaste a tu Lobi' : '¡Te invitaron a un Lobi!';
   const subtitulo = est.activa
       ? (fromMe ? 'Esperando respuesta…' : 'Alguien quiere jugar contigo')
-      : est.texto;
+      : textoEstado;
 
   /* Cuerpo: caras, contador y reloj solo mientras esté viva */
   let vivo = '';
@@ -4268,7 +4452,7 @@ function inviteCardHtml(datos, fromMe){
       <div class="ic-meta"><span>${est.dentro}/${tope} jugadores</span> ·
         <span>⏳ expira en <b class="ic-reloj" data-expira="${new Date(inv.expira_en).getTime()}">${mmss(quedan)}</b></span></div>`;
   }else{
-    vivo = `<div class="ic-estado">${est.clave==='aceptada'?'✓':'🚫'} ${escapeHtml(est.texto)}</div>`;
+    vivo = `<div class="ic-estado">${est.clave==='aceptada'?'✓':'🚫'} ${escapeHtml(textoEstado)}</div>`;
   }
 
   const cats = lobi ? (lobi.cats||[]).map(c=>`<span class="cat-chip">${escapeHtml(String(c))}</span>`).join('') : '';
@@ -5513,6 +5697,10 @@ function navTo(view){
   /* Marca la app como "estoy en Buscar" para que el CSS esconda la barra
      global y no queden dos buscadores. (Problema 4) */
   document.getElementById('app').classList.toggle('viewing-search', view==='search');
+  /* Chat privado abierto en celular: la conversación se lleva toda la pantalla
+     y usa SU PROPIO encabezado (el que trae la flechita de volver). Sin esto,
+     la barra flotante le quedaba encima y tapaba la flecha. */
+  document.getElementById('app').classList.toggle('viewing-dm', view==='messages' && !!openDM);
   /* Trampa 3: cambiar de sección siempre devuelve la barra. Si no, podrías
      aterrizar en una pantalla sin barra y sin saber cómo hacerla volver. */
   if(typeof mostrarBarra==='function'){ mostrarBarra(); ultimoScrollBarra=0; }
