@@ -276,7 +276,7 @@ html.revisando-sesion #app{display:none !important}
 .dm-open{max-width:680px;margin:0 auto;height:100%;display:flex;flex-direction:column;min-height:0;padding-bottom:14px}
 .dm-open-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-shrink:0}
 .dm-thread{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0;overflow-y:auto;padding:6px}
-.msg{display:flex;gap:10px;max-width:78%}
+.msg{display:flex;gap:10px;max-width:78%;flex-shrink:0}
 .msg .av{width:32px;height:32px;border-radius:50%;flex-shrink:0;object-fit:cover}
 .msg .bubble-wrap .who{font-size:12px;color:var(--color-muted);margin-bottom:3px}
 .msg .who b{color:var(--who-color);font-weight:600}
@@ -439,7 +439,31 @@ html.revisando-sesion #app{display:none !important}
 .rate-stars .star:hover{transform:scale(1.15)}
 
 /* invitación bonita */
-.invite-card{align-self:stretch;max-width:none;background:linear-gradient(135deg,rgba(200,77,255,.2),rgba(61,165,255,.13));border:1px solid rgba(200,77,255,.45);border-radius:16px;padding:0;overflow:hidden;animation:pop .35s ease}
+/* flex-shrink:0 = "a mí no me achiques".
+   El hilo del chat es una columna flexible, y en una columna flexible los hijos
+   se aplastan a lo alto cuando falta espacio (es el comportamiento por defecto
+   de CSS: antes de desbordar, comprime). Un mensajito de texto aplastado casi
+   no se nota; esta tarjeta mide ~200px, y al comprimirse quedaba en unas pocas
+   líneas moradas: la barra del encabezado y el borde. Ese era el bug. */
+.invite-card{flex-shrink:0;align-self:stretch;max-width:none;background:linear-gradient(135deg,rgba(200,77,255,.2),rgba(61,165,255,.13));border:1px solid rgba(200,77,255,.45);border-radius:16px;padding:0;overflow:hidden;animation:pop .35s ease}
+
+/* ══ Estados de la invitación (Problema 11) ══
+   Cuando deja de estar disponible, la tarjeta NO se borra: queda en la
+   conversación como registro, pero claramente apagada. */
+.invite-card.inv-inactiva{background:var(--color-card);border-color:var(--color-border);opacity:.72}
+.invite-card.inv-inactiva .ic-top{background:var(--color-card-2);filter:grayscale(1)}
+.invite-card.inv-inactiva .ic-banner{filter:grayscale(1) brightness(.55)}
+.invite-card.inv-aceptada{border-color:rgba(34,197,94,.5);opacity:1}
+.invite-card.inv-aceptada .ic-top{background:linear-gradient(135deg,#16a34a,#22c55e);filter:none}
+.ic-banner{height:96px;background-size:cover;background-position:center;background-color:var(--color-card-2)}
+.ic-estado{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;
+  color:var(--color-muted);padding:11px 0 2px;border-top:1px solid var(--color-border);margin-top:12px}
+.ic-caras{display:flex;align-items:center;margin-bottom:10px}
+.ic-caras img{width:28px;height:28px;border-radius:50%;border:2px solid var(--color-card);
+  margin-left:-8px;object-fit:cover;background:var(--color-card-2)}
+.ic-caras img:first-child{margin-left:0}
+.ic-caras .ic-mas{font-size:11px;font-weight:700;color:var(--color-muted);margin-left:7px}
+.ic-reloj{font-variant-numeric:tabular-nums}
 .invite-card .ic-top{background:var(--grad);padding:14px 18px;display:flex;align-items:center;gap:10px}
 .invite-card .ic-top .ic-spark{font-size:22px}
 .invite-card .ic-top .ic-title{font-size:14px;font-weight:700}
@@ -3014,6 +3038,11 @@ async function goApp(view){
   cargarAmistades();          // Problema 11
   suscribirseAmistades();     // Problema 11
   iniciarNotifs();            // Problema 12
+  /* Invitaciones a Lobis: las cargo y me sintonizo para ver los cambios de
+     estado en vivo (aceptada, rechazada…) sin recargar. (Problema 11) */
+  cargarInvitaciones().then(()=>{ if(state.view==='messages') refrescarVista(); });
+  suscribirseInvitaciones();
+  arrancarRelojInvitaciones();
   /* ¿Ya estaba dentro de un Lobi? Se lo pregunto a Supabase, no a esta pestaña.
      Así funciona en otra pestaña, otro navegador u otro dispositivo. (Pilar 4) */
   restaurarMiLobiActivo();
@@ -3967,7 +3996,13 @@ async function tryJoin(lobiId){
   resolverAvatares();   // esta ventana tampoco pasa por navTo()
   openModal('modal-join');
 }
-function confirmJoin(){closeModal('modal-join');if(state.pendingLobi)enterLobi(state.pendingLobi,false);}
+function confirmJoin(){
+  closeModal('modal-join');
+  /* Si llegué acá desde una invitación, recién ahora queda aceptada: cuando
+     de verdad entro, no cuando toqué el botón. (Problema 11) */
+  if(invitacionEnCurso){ marcarInvitacion(invitacionEnCurso,'aceptada'); invitacionEnCurso=null; }
+  if(state.pendingLobi)enterLobi(state.pendingLobi,false);
+}
 function enterLobi(lobi,created){
   roomTab='members';   // en móvil arranca en Miembros (que lleva la portada y misión)
   const c=JSON.parse(JSON.stringify(lobi));
@@ -4068,6 +4103,48 @@ function openInviteFromRoom(){
 }
 /* Invitar a un amigo: la invitación viaja como un privado especial (Problema 10).
    Antes solo se guardaba en mi navegador y el amigo nunca la recibía. */
+/* ====== INVITACIONES A LOBIS (Problema 11) ==================================
+   ANTES: la invitación era un textito JSON escondido dentro del mensaje
+   privado. Eso alcanza para MOSTRAR algo, pero no para nada que cambie: el
+   JSON se escribe una vez y queda congelado. No se podía saber si sigue
+   siendo válida, ni avisarle al otro que la aceptaste.
+
+   AHORA: la invitación es una fila propia en la tabla 'invitaciones', con
+   estado y fecha de expiración. El mensaje privado solo guarda su número
+   (invId) — como un ticket que apunta a la fila de verdad. Así los dos lados
+   miran la MISMA información y Realtime los mantiene sincronizados. */
+
+const MINUTOS_INVITACION = 10;
+
+/* Las invitaciones que me tocan, por número. Se llena al cargar y la mantiene
+   al día el canal de Realtime. */
+let invitaciones = {};
+
+async function cargarInvitaciones(){
+  try{
+    const { data, error } = await sb.from('invitaciones').select('*');
+    if(error) return;
+    invitaciones = {};
+    (data||[]).forEach(i=>{ invitaciones[i.id] = i; });
+  }catch(e){ /* si falla, las tarjetas se muestran como no disponibles */ }
+}
+
+let canalInvitaciones = null;
+function suscribirseInvitaciones(){
+  if(canalInvitaciones) return;
+  canalInvitaciones = sb.channel('invitaciones-vivas')
+    .on('postgres_changes', { event:'*', schema:'public', table:'invitaciones' },
+      (payload)=>{
+        const fila = payload && (payload.new || payload.old);
+        if(!fila || !fila.id) return;
+        if(payload.eventType==='DELETE') delete invitaciones[fila.id];
+        else invitaciones[fila.id] = fila;
+        /* Repinto el chat abierto para que el cambio de estado se vea al toque */
+        if(state.view==='messages' && openDM) refrescarVista();
+      })
+    .subscribe();
+}
+
 async function sendInvite(friendName){
   const l=state.currentLobi;
   if(!l){ toast('⚠️ No estás en ningún Lobi'); return; }
@@ -4076,47 +4153,202 @@ async function sendInvite(friendName){
   const destino=findPlayer(friendName);
   if(!destino || !destino.real){ toast('⚠️ Ese amigo no es real'); return; }
 
-  /* Guardo los datos del Lobi en la columna 'invitacion' (como texto JSON) */
-  const datos = JSON.stringify({
-    lobiId: l.id,
-    name: l.name,
-    cats: l.cats || [],
-    compat: l.compat,
-    spots: 5 - l.members.length
-  });
-
   try{
     const { data:{ user } } = await sb.auth.getUser();
     if(!user) return;
-    const { error } = await sb.from('privados').insert({
+
+    /* 1) La invitación de verdad, con su vencimiento */
+    const expira = new Date(Date.now() + MINUTOS_INVITACION*60*1000).toISOString();
+    const { data:inv, error:e1 } = await sb.from('invitaciones').insert({
+      lobi_id: l.id,
+      de_usuario: user.id,
+      de_nombre: state.displayName,
+      para_nombre: friendName,
+      estado: 'activa',
+      expira_en: expira
+    }).select().single();
+    if(e1) throw e1;
+
+    invitaciones[inv.id] = inv;
+
+    /* 2) El mensaje del chat, que solo lleva el número de la invitación.
+       Guardo también el nombre del Lobi para poder mostrar algo aunque la
+       invitación ya no exista (por ejemplo si el Lobi fue borrado). */
+    const datos = JSON.stringify({ invId: inv.id, lobiId: l.id, name: l.name });
+    const { error:e2 } = await sb.from('privados').insert({
       de_usuario: user.id,
       de_nombre: state.displayName,
       para_nombre: friendName,
       texto: '',
       invitacion: datos
     });
-    if(error) throw error;
+    if(e2) throw e2;
+
     toast(`🎮 Invitación enviada a ${friendName}`);
   }catch(e){
     toast('⚠️ No se envió: ' + e.message);
   }
 }
 
-function inviteCardHtml(inv,fromMe){
-  return `<div class="invite-card">
-    <div class="ic-top"><span class="ic-spark">🎮</span><div><div class="ic-title">${fromMe?'Invitaste a tu Lobi':'¡Te invitaron a un Lobi!'}</div><div class="ic-sub">${fromMe?'Esperando respuesta…':'Alguien quiere jugar contigo'}</div></div></div>
-    <div class="ic-body"><div class="ic-lobi">${escapeHtml(inv.name)}</div><div class="ic-cats">${(inv.cats||[]).map(c=>`<span class="cat-chip">${escapeHtml(c)}</span>`).join('')}</div>
-      <div class="ic-meta"><span class="compat high"><span class="dot" style="background:var(--color-success)"></span>${inv.compat}% compatible</span> · ${inv.spots} cupos libres</div>
-      ${fromMe?'':`<div class="ic-actions"><button class="btn btn-secondary btn-sm" style="flex:1" onclick="toast('Invitación rechazada')">Ahora no</button><button class="btn btn-primary btn-sm" style="flex:1" onclick="acceptInvite('${inv.lobiId}')">Ver y unirme 🚀</button></div>`}</div></div>`;
+/* ¿En qué estado está REALMENTE esta invitación, ahora mismo?
+   Tres de los seis estados no se guardan en la base: se calculan al mirar.
+   Eso es a propósito. Si dependieran de que alguien escriba "expirada" en la
+   fila, una invitación vencida seguiría diciendo "Aceptar" hasta que alguien
+   la tocara. Calculándolos acá, la tarjeta siempre dice la verdad — aunque
+   nadie haya tenido el chat abierto cuando venció. */
+function estadoInvitacion(inv){
+  if(!inv) return { clave:'vieja', texto:'Invitación no disponible', activa:false };
+
+  if(inv.estado==='aceptada')  return { clave:'aceptada',  texto:'Te uniste al Lobi', activa:false };
+  if(inv.estado==='rechazada') return { clave:'rechazada', texto:'Invitación rechazada', activa:false };
+  if(inv.estado==='llena')     return { clave:'llena',     texto:'Este Lobi ya está lleno', activa:false };
+  if(inv.estado==='cerrada')   return { clave:'cerrada',   texto:'Este Lobi ya terminó', activa:false };
+
+  /* Dice 'activa' en la base. Pero eso lo escribió el que invitó, hace rato. */
+  if(new Date(inv.expira_en).getTime() <= Date.now())
+    return { clave:'expirada', texto:'Invitación expirada', activa:false };
+
+  const lobi = (realLobis||[]).find(x=>x.id===inv.lobi_id);
+  if(!lobi) return { clave:'cerrada', texto:'Este Lobi ya terminó', activa:false };
+
+  const dentro = conteoMiembros[inv.lobi_id] || 0;
+  if(dentro >= topeDe(lobi))
+    return { clave:'llena', texto:'Este Lobi ya está lleno', activa:false, lobi, dentro };
+
+  return { clave:'activa', texto:'', activa:true, lobi, dentro };
 }
 
-/* Acepto la invitación: me lleva a ver quién está (Problema 10).
-   No entra a ciegas — como dice el manual. */
-function acceptInvite(lobiId){
-  if(!lobiId){ toast('⚠️ Invitación inválida'); return; }
-  const existe = (realLobis||[]).find(x=>x.id===lobiId);
-  if(!existe){ toast('😕 Ese Lobi ya no existe'); return; }
-  tryJoin(lobiId);   // muestra quién está y después une
+/* Mostrar mm:ss para el tiempo que le queda a la invitación */
+function mmss(segs){
+  const s=Math.max(0,segs|0);
+  return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+}
+
+/* Las caritas de quienes están adentro del Lobi ahora mismo */
+function carasDelLobi(lobiId, tope){
+  const gente = miembrosPorLobi[lobiId] || [];
+  const caras = gente.slice(0,4).map(m=>avatarDe({
+    seed:m.seed, bg:m.bg,
+    avatarFile: m.id_usuario ? fotoDeUsuario(m.id_usuario) : null
+  },'')).join('');
+  const resto = gente.length>4 ? `<span class="ic-mas">+${gente.length-4}</span>` : '';
+  return `<div class="ic-caras">${caras}${resto}</div>`;
+}
+
+function inviteCardHtml(datos, fromMe){
+  const invId = datos && datos.invId;
+  const inv   = invId ? invitaciones[invId] : null;
+  const est   = estadoInvitacion(inv);
+  const lobi  = est.lobi || (realLobis||[]).find(x=>x.id===(datos&&datos.lobiId));
+  const nombreLobi = (lobi && lobi.name) || (datos && datos.name) || 'Lobi';
+
+  /* El banner del Lobi, en gris cuando la invitación ya no sirve */
+  let fondoCss = 'background:var(--color-card-2)';
+  if(lobi){
+    const f = fondoDeLobi(lobi);
+    fondoCss = f.tipo==='img' ? `background-image:url('${f.valor}')` : `background:${f.valor}`;
+  }
+
+  const clase = est.clave==='aceptada' ? 'inv-aceptada'
+              : (est.activa ? '' : 'inv-inactiva');
+
+  /* Cabecera: cambia según quién mira y cómo terminó */
+  const titulo = est.clave==='aceptada' ? '✓ Te uniste al Lobi'
+               : fromMe ? 'Invitaste a tu Lobi' : '¡Te invitaron a un Lobi!';
+  const subtitulo = est.activa
+      ? (fromMe ? 'Esperando respuesta…' : 'Alguien quiere jugar contigo')
+      : est.texto;
+
+  /* Cuerpo: caras, contador y reloj solo mientras esté viva */
+  let vivo = '';
+  if(est.activa && lobi){
+    const tope = topeDe(lobi);
+    const quedan = Math.round((new Date(inv.expira_en).getTime() - Date.now())/1000);
+    vivo = `${carasDelLobi(inv.lobi_id, tope)}
+      <div class="ic-meta"><span>${est.dentro}/${tope} jugadores</span> ·
+        <span>⏳ expira en <b class="ic-reloj" data-expira="${new Date(inv.expira_en).getTime()}">${mmss(quedan)}</b></span></div>`;
+  }else{
+    vivo = `<div class="ic-estado">${est.clave==='aceptada'?'✓':'🚫'} ${escapeHtml(est.texto)}</div>`;
+  }
+
+  const cats = lobi ? (lobi.cats||[]).map(c=>`<span class="cat-chip">${escapeHtml(String(c))}</span>`).join('') : '';
+
+  /* Botones: solo si la invitación está viva y no es mía */
+  const acciones = (est.activa && !fromMe)
+    ? `<div class="ic-actions" style="margin-top:12px">
+         <button class="btn btn-secondary btn-sm" style="flex:1" onclick="rechazarInvitacion(${invId})">Rechazar</button>
+         <button class="btn btn-primary btn-sm" style="flex:1" onclick="aceptarInvitacion(${invId})">Aceptar 🚀</button>
+       </div>` : '';
+
+  return `<div class="invite-card ${clase}">
+    <div class="ic-banner" style="${fondoCss}"></div>
+    <div class="ic-top"><span class="ic-spark">🎮</span><div><div class="ic-title">${titulo}</div><div class="ic-sub">${escapeHtml(subtitulo)}</div></div></div>
+    <div class="ic-body">
+      <div class="ic-lobi">${escapeHtml(nombreLobi)}</div>
+      <div class="ic-cats">${cats}</div>
+      ${vivo}
+      ${acciones}
+    </div></div>`;
+}
+
+/* Escribe el estado nuevo en la base. Realtime se lo cuenta al otro. */
+async function marcarInvitacion(invId, estado){
+  try{
+    const { error } = await sb.from('invitaciones').update({ estado }).eq('id', invId);
+    if(!error && invitaciones[invId]) invitaciones[invId].estado = estado;
+  }catch(e){ /* si falla, el estado real igual se calcula al mirar */ }
+  refrescarVista();
+}
+
+function rechazarInvitacion(invId){
+  /* La tarjeta NO se borra: queda gris en la conversación, como pediste. */
+  marcarInvitacion(invId, 'rechazada');
+}
+
+/* El reloj de las invitaciones: actualiza los "expira en 7:32" que haya en
+   pantalla, y cuando alguno llega a cero repinta para que la tarjeta pase a
+   gris sola. No hace nada si no hay ninguna a la vista, así que es barato. */
+let relojInvitaciones = null;
+function arrancarRelojInvitaciones(){
+  if(relojInvitaciones) return;
+  relojInvitaciones = setInterval(()=>{
+    const relojes = document.querySelectorAll('.ic-reloj[data-expira]');
+    if(!relojes.length) return;
+    let vencioAlguna = false;
+    relojes.forEach(el=>{
+      const quedan = Math.round((Number(el.getAttribute('data-expira')) - Date.now())/1000);
+      if(quedan <= 0) vencioAlguna = true;
+      else el.textContent = mmss(quedan);
+    });
+    if(vencioAlguna) refrescarVista();
+  }, 1000);
+}
+
+/* Cuál invitación estoy aceptando (para marcarla si finalmente entro) */
+let invitacionEnCurso = null;
+
+async function aceptarInvitacion(invId){
+  invitacionEnCurso = null;
+  const inv = invitaciones[invId];
+  if(!inv){ toast('⚠️ Esta invitación ya no está disponible'); refrescarVista(); return; }
+
+  /* REVALIDAR CONTRA LA NUBE antes de abrir la confirmación. Entre que te
+     llegó la invitación y que la tocaste pudo pasar cualquier cosa: que se
+     llenara, que se cerrara, que venciera. (Problema 11) */
+  await cargarLobisReales();
+  await cargarConteoMiembros();
+
+  const est = estadoInvitacion(invitaciones[invId]);
+  if(!est.activa){
+    /* Si murió por llenarse o cerrarse, lo dejo escrito para que los dos lo vean */
+    if(est.clave==='llena' || est.clave==='cerrada') marcarInvitacion(invId, est.clave);
+    else refrescarVista();
+    toast('🚫 ' + est.texto);
+    return;
+  }
+
+  invitacionEnCurso = invId;
+  tryJoin(inv.lobi_id);   // muestra quién está adentro y recién ahí entrás
 }
 
 /* ============ ROOM ============ */
