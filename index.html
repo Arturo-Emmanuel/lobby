@@ -5837,10 +5837,18 @@ async function limpiarMiColaVieja(){
 /* Quiénes están esperando ahora mismo (para mostrar "3 buscando") */
 let colaActual = [];
 
+/* Número de pedido, para no dejar que una respuesta VIEJA pise a una nueva.
+   Sin esto la pantalla parpadeaba: si dos pedidos salen casi juntos y el
+   primero vuelve último, su foto (vieja, sin grupo) borraba la foto nueva
+   (con grupo). Resultado: "ENCONTRADOS" y "2 de 2" turnándose. */
+let colaPedido = 0;
+
 async function cargarCola(){
+  const miPedido = ++colaPedido;
   try{
     const { data, error } = await sb.from('cola_emparejamiento').select('*');
     if(error) return;
+    if(miPedido !== colaPedido) return;   // llegó tarde: ya hay una foto más nueva
     colaActual = data || [];
 
     /* ¿Me asignaron a un grupo? Puede haberlo armado otro navegador, así que
@@ -5896,7 +5904,10 @@ let relojGrupos = null;
 function arrancarLatidoCola(){
   pararLatidoCola();
   relojLatidoCola = setInterval(latirCola, 15000);
-  relojGrupos = setInterval(()=>{ if(enCola && !grupoActual) intentarFormarGrupo(); }, 4000);
+  /* Pido la cola de nuevo (y cargarCola reintenta armar al final). Antes esto
+     solo reintentaba armar sobre la foto vieja de la cola. Además, si un aviso
+     en vivo se perdiera, así me entero igual de que ya tengo grupo. */
+  relojGrupos = setInterval(()=>{ if(enCola && !grupoActual) cargarCola(); }, 4000);
 }
 function pararLatidoCola(){
   if(relojLatidoCola){ clearInterval(relojLatidoCola); relojLatidoCola = null; }
@@ -5989,24 +6000,30 @@ async function intentarFormarGrupo(){
   const ids = [miId].concat(elegidos.map(c => c.id_usuario));
   const gid = 'g-' + Date.now() + '-' + String(miId).slice(0,8);
 
-  try{
-    /* El .is('grupo_id', null) es importante: solo agarro a quien SIGUE libre.
-       Si a alguien lo tomó otro grupo un instante antes, no se lo robo. */
-    const { error } = await sb.from('cola_emparejamiento')
-      .update({ grupo_id: gid })
-      .in('id_usuario', ids)
-      .is('grupo_id', null);
-    if(error) return;
+  /* ====== POR QUÉ ESTO LO HACE LA BASE Y NO EL NAVEGADOR ===================
 
-    /* ...y como por eso puedo haber agarrado a menos gente de la que necesito,
-       lo verifico. Si el grupo quedó incompleto, lo deshago y libero a todos:
-       mejor volver a la cola que quedar en un grupo a medias. */
-    const { data:armado } = await sb.from('cola_emparejamiento').select('id_usuario').eq('grupo_id', gid);
-    if((armado || []).length < colaCantidad){
-      await sb.from('cola_emparejamiento').update({ grupo_id: null }).eq('grupo_id', gid);
-      return;
-    }
+     Primer intento (el que parpadeaba): el navegador del armador hacía un
+     UPDATE sobre las filas de los demás. No funciona, por la misma razón que
+     el Problema 7: la política RLS de la cola deja que cada uno toque SU
+     PROPIA fila, así que el UPDATE escribía solo la mía... y en silencio, sin
+     error. Yo me veía con grupo (¡ENCONTRADOS!), el chequeo contaba 1 de 2,
+     deshacía todo, y a los 4 segundos vuelta a empezar. Ese era el parpadeo.
+
+     La cura NO es abrir el permiso (si cualquiera puede escribir en la fila de
+     cualquiera, cualquiera puede meterte en el grupo que se le antoje). La
+     cura es una FUNCIÓN en la base: ella sí puede tocar varias filas, pero
+     solo hace lo que le dejamos hacer, y lo hace todo junto o nada. */
+  let armados = 0;
+  try{
+    const { data, error } = await sb.rpc('armar_grupo', { ids: ids, gid: gid });
+    if(error) return;
+    armados = Number(data) || 0;
   }catch(e){ return; }
+
+  /* La función devuelve 0 si alguien dejó de estar libre entre que yo miré y
+     yo escribí. No es un error: es que se me adelantaron. Reintento en la
+     próxima vuelta del reloj, con la cola ya actualizada. */
+  if(armados < colaCantidad) return;
 
   cargarCola();
 }
