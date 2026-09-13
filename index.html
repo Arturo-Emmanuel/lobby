@@ -636,6 +636,18 @@ html.revisando-sesion #app{display:none !important}
   border:1.5px solid var(--color-border);transition:.3s}
 .mp-slot.on{background:var(--color-primary);border-color:var(--color-primary);
   box-shadow:0 0 10px rgba(200,77,255,.5)}
+/* Grupo encontrado (Fase 2) */
+.grupo-badge{font-size:12px;font-weight:800;letter-spacing:1.2px;color:#fff;
+  background:var(--grad);padding:8px 16px;border-radius:99px;margin-bottom:6px}
+.grupo-lista{margin-top:22px;width:100%;max-width:360px;display:flex;flex-direction:column;gap:9px}
+.grupo-fila{display:flex;align-items:center;gap:12px;background:var(--color-card);
+  border:1px solid var(--color-border);border-radius:14px;padding:11px 14px;text-align:left}
+.grupo-fila .av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0}
+.gf-meta{flex:1;min-width:0}
+.gf-nombre{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gf-sub{font-size:12px;color:var(--color-muted)}
+.gf-compat{font-size:14px;font-weight:700;flex-shrink:0}
+
 .matching-tip{margin-top:18px;font-size:12px;color:var(--color-muted);max-width:330px}
 @media (prefers-reduced-motion:reduce){ .matching-orb{animation:none} .mp-fill{transition:none} }
 
@@ -2024,6 +2036,15 @@ async function cargarUsuariosReales(){
     if(error) throw error;
     if(!data) { realPlayers=[]; return; }
 
+    /* Las preferencias del otro, para poder compararlas con las mías.
+       Vienen como JSON; algunos clientes las devuelven ya como objeto y otros
+       como texto, así que contemplo los dos casos. (Mejora 1)
+       Va acá arriba porque la usan tanto el directorio como realPlayers. */
+    const leerJuegos = (v)=>{
+      if(!v) return {};
+      try{ return typeof v === 'string' ? JSON.parse(v) : v; }catch(e){ return {}; }
+    };
+
     /* El directorio se arma con TODOS, sin filtrar. Va antes del filtro de
        abajo justamente para que yo también esté adentro. */
     directorioPerfiles = {};
@@ -2034,17 +2055,12 @@ async function cargarUsuariosReales(){
         nick: p.nick || p.nombre || 'jugador',
         avatarFile: p.avatar || null,
         estilo: p.estilo || 'Chill',
-        pais: p.pais || 'Costa Rica'
+        pais: p.pais || 'Costa Rica',
+        /* Sus preferencias de juego: hacen falta para calcular compatibilidad
+           con alguien de la cola, que puede no estar en realPlayers. (Mejora 4) */
+        juegos: leerJuegos(p.juegos)
       };
     });
-
-    /* Las preferencias del otro, para poder compararlas con las mías.
-       Vienen como JSON; algunos clientes las devuelven ya como objeto y otros
-       como texto, así que contemplo los dos casos. (Mejora 1) */
-    const leerJuegos = (v)=>{
-      if(!v) return {};
-      try{ return typeof v === 'string' ? JSON.parse(v) : v; }catch(e){ return {}; }
-    };
 
     realPlayers = data
       .filter(p => !user || p.id_usuario !== user.id)  // no me recomiendo a mí mismo
@@ -3686,7 +3702,9 @@ const views={
   profile:()=> state._profileTarget ? fullProfileView(state._profileTarget) : myProfileView(),
   create:()=>createView(),
   settings:()=>settingsView(),
-  matching:()=>matchingView(),
+  /* Una sola vista para las dos etapas: mientras espero muestro el progreso,
+     y cuando ya tengo grupo muestro quiénes son. */
+  matching:()=> grupoActual ? grupoView() : matchingView(),
 };
 
 /* ====== AMIGOS Y SOLICITUDES: TROZOS COMPARTIDOS (Problema 3) ===============
@@ -5795,6 +5813,7 @@ async function empezarBusqueda(){
 /* Salgo de la cola: borro mi fila y apago todo. */
 async function cancelarBusqueda(volverAInicio){
   enCola = false;
+  grupoActual = null;
   pararLatidoCola();
   try{
     const { data:{ user } } = await sb.auth.getUser();
@@ -5823,7 +5842,18 @@ async function cargarCola(){
     const { data, error } = await sb.from('cola_emparejamiento').select('*');
     if(error) return;
     colaActual = data || [];
+
+    /* ¿Me asignaron a un grupo? Puede haberlo armado otro navegador, así que
+       la única forma de enterarme es mirando mi propia fila. (Fase 2) */
+    const miFila = colaActual.find(c => c.id_usuario === miId);
+    const grupoNuevo = (miFila && miFila.grupo_id) || null;
+    if(grupoNuevo !== grupoActual){
+      grupoActual = grupoNuevo;
+      if(grupoActual) toast('🎮 ¡Encontramos tu grupo!');
+    }
+
     if(state.view === 'matching') refrescarVista();
+    if(!grupoActual) intentarFormarGrupo();
   }catch(e){ /* si falla, la pantalla muestra solo mi espera */ }
 }
 
@@ -5857,12 +5887,20 @@ async function latirCola(){
   }catch(e){ /* el próximo latido reintenta */ }
 }
 
+/* Reintento armar grupo cada 4 segundos aunque nadie entre ni salga de la
+   cola. Hace falta porque la vara AFLOJA con el tiempo: puede que la gente ya
+   esté ahí desde hace rato y recién ahora pase el corte. Sin este reintento,
+   te quedarías esperando a que alguien se mueva para que la vara valiera. */
+let relojGrupos = null;
+
 function arrancarLatidoCola(){
   pararLatidoCola();
   relojLatidoCola = setInterval(latirCola, 15000);
+  relojGrupos = setInterval(()=>{ if(enCola && !grupoActual) intentarFormarGrupo(); }, 4000);
 }
 function pararLatidoCola(){
   if(relojLatidoCola){ clearInterval(relojLatidoCola); relojLatidoCola = null; }
+  if(relojGrupos){ clearInterval(relojGrupos); relojGrupos = null; }
 }
 
 /* ¿Quiénes pueden formar grupo CONMIGO? Cuatro condiciones:
@@ -5887,6 +5925,142 @@ function candidatosEnCola(){
     !c.grupo_id &&
     new Date(c.visto_en || c.entro_en).getTime() > corte
   );
+}
+
+/* ====== FASE 2: FORMAR EL GRUPO ===========================================
+
+   LA VARA QUE AFLOJA
+   Todo emparejamiento vive una tensión: si sos muy exigente, nadie encuentra
+   grupo; si no lo sos, juntás desconocidos al azar. Ningún extremo sirve.
+
+   La salida (la misma que usan los juegos grandes): empezar exigente e ir
+   bajando la vara con los segundos. Al principio buscás gente muy compatible;
+   si no aparece, vas aceptando menos. Así obtenés lo mejor POSIBLE en ese
+   momento, sin dejar a nadie esperando para siempre. */
+function varaCompatibilidad(segundos){
+  if(segundos <  30) return 80;   // primeros 30 seg: solo muy compatibles
+  if(segundos <  90) return 65;   // hasta 1:30: compatibles
+  if(segundos < 180) return 50;   // hasta 3:00: aceptables
+  return 0;                        // después de 3 min: con tal de que juegues
+}
+
+/* Compatibilidad entre yo y alguien de la cola. Uso el directorio porque ahí
+   está TODO el mundo (realPlayers me excluye a mí y puede no tener a alguien
+   que se registró recién). */
+function compatConUsuario(id_usuario){
+  const p = directorioPerfiles[id_usuario];
+  if(!p) return 70;   // no lo conozco todavía: neutro, ni lo premio ni lo castigo
+  return calcCompat({ estilo:p.estilo, pais:p.pais, juegos:p.juegos });
+}
+
+let grupoActual = null;   // el grupo que me tocó (null mientras espero)
+
+/* ¿Hay grupo para mí? Lo intento armar yo mismo.
+
+   EL PROBLEMA DE LOS DOS ARMADORES: si los dos navegadores intentaran armar
+   el grupo al mismo tiempo, cada uno podría armar uno distinto con la misma
+   gente. Por eso hay una regla que TODOS calculan igual: arma el que lleva
+   más tiempo esperando. Como todos ven la misma cola, todos llegan a la misma
+   conclusión sobre quién es, y solo esa persona escribe. Y de paso es justo:
+   el que más esperó es el primero en ser servido. */
+async function intentarFormarGrupo(){
+  if(!enCola || grupoActual) return;
+  const cands = candidatosEnCola();
+  if(cands.length < colaCantidad) return;    // todavía no somos suficientes
+
+  const ordenados = [...cands].sort((a,b)=>{
+    const ta = new Date(a.entro_en).getTime(), tb = new Date(b.entro_en).getTime();
+    /* Desempate por id para que, si dos entraron en el mismo milisegundo,
+       los dos navegadores elijan igual y no se pisen. */
+    return ta - tb || String(a.id_usuario).localeCompare(String(b.id_usuario));
+  });
+  if(ordenados[0].id_usuario !== miId) return;   // que lo arme el otro
+
+  const vara = varaCompatibilidad(Math.round((Date.now() - colaDesde)/1000));
+  const otros = cands
+    .filter(c => c.id_usuario !== miId)
+    .map(c => Object.assign({}, c, { compat: compatConUsuario(c.id_usuario) }))
+    .filter(c => c.compat >= vara)
+    .sort((a,b) => b.compat - a.compat);       // los más compatibles primero
+
+  if(otros.length < colaCantidad - 1) return;  // hay gente, pero ninguno pasa la vara todavía
+
+  const elegidos = otros.slice(0, colaCantidad - 1);
+  const ids = [miId].concat(elegidos.map(c => c.id_usuario));
+  const gid = 'g-' + Date.now() + '-' + String(miId).slice(0,8);
+
+  try{
+    /* El .is('grupo_id', null) es importante: solo agarro a quien SIGUE libre.
+       Si a alguien lo tomó otro grupo un instante antes, no se lo robo. */
+    const { error } = await sb.from('cola_emparejamiento')
+      .update({ grupo_id: gid })
+      .in('id_usuario', ids)
+      .is('grupo_id', null);
+    if(error) return;
+
+    /* ...y como por eso puedo haber agarrado a menos gente de la que necesito,
+       lo verifico. Si el grupo quedó incompleto, lo deshago y libero a todos:
+       mejor volver a la cola que quedar en un grupo a medias. */
+    const { data:armado } = await sb.from('cola_emparejamiento').select('id_usuario').eq('grupo_id', gid);
+    if((armado || []).length < colaCantidad){
+      await sb.from('cola_emparejamiento').update({ grupo_id: null }).eq('grupo_id', gid);
+      return;
+    }
+  }catch(e){ return; }
+
+  cargarCola();
+}
+
+/* Vuelvo a la cola desde un grupo (por ahora, el botón de la Fase 2). */
+async function volverALaCola(){
+  if(!grupoActual) return;
+  const gid = grupoActual;
+  grupoActual = null;
+  try{
+    /* Solo me libero a MÍ. Los demás siguen en su grupo: si me voy, es mi
+       decisión, no la de ellos. */
+    await sb.from('cola_emparejamiento').update({ grupo_id: null }).eq('id_usuario', miId);
+  }catch(e){}
+  colaDesde = Date.now();   // la vara vuelve a empezar exigente
+  cargarCola();
+}
+
+/* Quiénes quedaron en mi grupo, con su compatibilidad conmigo */
+function miembrosDelGrupo(){
+  if(!grupoActual) return [];
+  return colaActual
+    .filter(c => c.grupo_id === grupoActual)
+    .map(c => ({
+      id_usuario: c.id_usuario,
+      nombre: c.nombre || 'Jugador',
+      soyYo: c.id_usuario === miId,
+      compat: c.id_usuario === miId ? 100 : compatConUsuario(c.id_usuario)
+    }))
+    .sort((a,b) => (b.soyYo?1:0) - (a.soyYo?1:0) || b.compat - a.compat);
+}
+
+function grupoView(){
+  const cat = GAME_CATALOG[colaJuego] || {};
+  const gente = miembrosDelGrupo();
+  const filas = gente.map(g=>{
+    const p = directorioPerfiles[g.id_usuario] || {};
+    const foto = avatarDe({ seed:g.nombre, bg:'c84dff', avatarFile: fotoDeUsuario(g.id_usuario) });
+    return `<div class="grupo-fila">
+      ${foto}
+      <div class="gf-meta"><div class="gf-nombre">${escapeHtml(g.nombre)}${g.soyYo?' (tú)':''}</div>
+        <div class="gf-sub">${escapeHtml(p.estilo || 'Jugador')}</div></div>
+      ${g.soyYo ? '' : `<div class="gf-compat" style="color:${compatColor(g.compat)}">${g.compat}%</div>`}
+    </div>`;
+  }).join('');
+
+  return `<div class="matching-wrap">
+    <div class="grupo-badge">¡ENCONTRADOS! 🎮</div>
+    <h2 class="matching-title">Tu grupo de ${escapeHtml(cat.name || 'juego')} está listo</h2>
+    <p class="matching-sub">Encontramos ${gente.length} jugadores compatibles con vos</p>
+    <div class="grupo-lista">${filas}</div>
+    <button class="btn btn-secondary" style="margin-top:22px;min-width:200px" onclick="volverALaCola()">Seguir buscando</button>
+    <p class="matching-tip">La votación para crear el Lobi juntos viene en el próximo paso.</p>
+  </div>`;
 }
 
 /* La pantalla de "buscando". Es una vista propia para que la barra de abajo
