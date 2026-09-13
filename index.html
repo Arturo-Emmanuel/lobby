@@ -4211,6 +4211,7 @@ async function publishLobi(){
 
   // Guardar el Lobi en la base de datos
   let lobiId='mine';
+  let filaCreada=null;   // la fila tal como quedó guardada (fuente de verdad)
   // Elijo un banner aleatorio de la galería del juego (distinto cada vez)
   const bannersJuego = (GAME_CATALOG[createGame]||{}).banners || [];
   const bannerElegido = bannersJuego.length ? bannersJuego[Math.floor(Math.random()*bannersJuego.length)] : null;
@@ -4232,7 +4233,7 @@ async function publishLobi(){
         max_jugadores: tope
       }).select().single();
       if(error) throw error;
-      if(data && data.id) lobiId='real-'+data.id;  // id real de la base
+      if(data && data.id){ lobiId='real-'+data.id; filaCreada=data; }  // id real de la base
       /* La misión del equipo es lo que ESCRIBISTE, no la etiqueta que elegiste.
          Y si no quisiste misión, no se crea ninguna: el Lobi arranca limpio,
          sin tarjeta vacía adentro. (Problema 9) */
@@ -4245,11 +4246,23 @@ async function publishLobi(){
     toast('⚠️ El Lobi se abrió pero no se guardó: ' + e.message);
   }
 
-  enterLobi({id:lobiId,game:createGame,banner:bannerElegido,name:nm,mode:mode.toUpperCase(),cats:[mode,style,obj],compat:91,
-    members:[], terminaEn: lobiId.startsWith('real-') ? Date.now()+90*60*1000 : null,
-    objetivoPrincipal: tieneObjetivo ? textoObjetivo : null, tieneObjetivo: tieneObjetivo,
-    maxJugadores: tope,
-    real: lobiId.startsWith('real-')},true);
+  /* ¿Por qué armar la ficha con filaALobi en vez de a mano?
+     Porque a mano se olvida algo, y ya pasó: este Lobi entraba sin `id_creador`,
+     y como el menú ⋯ usa ese dato para saber si sos el dueño, "Editar Lobi" no
+     aparecía en los Lobis creados a mano — sí en los del emparejamiento, que
+     desde el día uno se armaron con filaALobi.
+
+     Regla: si la base ya me devolvió la fila, ESA es la ficha. La copia a mano
+     queda solo para cuando no hubo base (Lobi de ejemplo o guardado fallido). */
+  const ficha = filaCreada ? filaALobi(filaCreada) : {
+    id:lobiId, game:createGame, banner:bannerElegido, name:nm,
+    mode:mode.toUpperCase(), cats:[mode,style,obj],
+    terminaEn:null, objetivoPrincipal: tieneObjetivo ? textoObjetivo : null,
+    tieneObjetivo: tieneObjetivo, maxJugadores: tope, real:false
+  };
+  ficha.compat = 91;
+  ficha.members = [];
+  enterLobi(ficha, true);
   createStep='game';createGame=null;
 }
 
