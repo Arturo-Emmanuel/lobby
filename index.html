@@ -1739,13 +1739,15 @@ let solicitudes = [];          // filas de la tabla 'amistades' que me involucra
 let canalAmistades = null;
 
 /* Traigo de la base todas mis amistades (pendientes y aceptadas). */
-let miId = null;   // mi id de usuario, para no pedirlo a cada rato
+let miId = null;      // mi id de usuario, para no pedirlo a cada rato
+let miCorreo = null;  // el correo con el que entré (Ajustes lo muestra)
 
 async function cargarAmistades(){
   try{
     const { data:{ user } } = await sb.auth.getUser();
     if(!user){ console.warn('[amistades] no hay usuario logueado'); return; }
     miId = user.id;
+    miCorreo = user.email || miCorreo;
 
     const { data, error } = await sb.from('amistades').select('*')
       .or(`de_usuario.eq.${user.id},para_usuario.eq.${user.id}`)
@@ -3234,6 +3236,8 @@ async function cargarMiPerfil(){
   try {
     const { data:{ user } } = await sb.auth.getUser();
     if(!user) return;
+    miId = user.id;
+    miCorreo = user.email || miCorreo;   // para la pestaña Cuenta de Ajustes
     // Buscamos el perfil cuyo id_usuario sea el de esta persona
     const { data, error } = await sb.from('perfiles').select('*').eq('id_usuario', user.id).limit(1);
     if(error) throw error;
@@ -4266,15 +4270,53 @@ async function publishLobi(){
   createStep='game';createGame=null;
 }
 
+/* ====== AJUSTES EN DOS APARTADOS (Mejora 2) ==================================
+   No cambia ni una función: son las mismas tarjetas de siempre, repartidas.
+
+   Por qué en dos:
+     🎨 Personalización → cómo te VES (tu foto, el tema)
+     ⚙️ Cuenta          → quién SOS y tu seguridad (nombre, país, contraseña)
+
+   Y por qué pestañas y no todo junto: en celular la lista entera era un
+   scroll larguísimo donde cambiar el tema y cambiar la contraseña parecían
+   la misma clase de cosa. No lo son. */
+let ajustesTab = 'personalizacion';
+
+function cambiarPestanaAjustes(t){
+  ajustesTab = t;
+  refrescarVista();   // repintar, no navegar (regla 6)
+}
+
 function settingsView(){
+  const esPerso = ajustesTab !== 'cuenta';
+  const cuerpo = esPerso ? ajustesPersonalizacion() : ajustesCuenta();
   return `<div class="hero-line">Ajustes</div><div class="hero-sub">Tu cuenta y preferencias.</div>
-    <div class="detail-grid" style="grid-template-columns:1fr;max-width:560px">
+    <div style="max-width:560px">
+      <div class="msg-tabs">
+        <button class="msg-tab ${esPerso?'on':''}" onclick="cambiarPestanaAjustes('personalizacion')">🎨 Personalización</button>
+        <button class="msg-tab ${esPerso?'':'on'}" onclick="cambiarPestanaAjustes('cuenta')">⚙️ Cuenta</button>
+      </div>
+    </div>
+    <div class="detail-grid" style="grid-template-columns:1fr;max-width:560px">${cuerpo}</div>`;
+}
+
+/* 🎨 Cómo te ves */
+function ajustesPersonalizacion(){
+  return `
+      <div class="detail-card"><h5>Foto de perfil</h5><div class="set-avatar-row"><div class="set-avatar-wrap" onclick="document.getElementById('file-input').click()"><img class="set-avatar" id="set-avatar-img" src="${state.avatarUrl}"><span class="cam"><svg fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h3l2-3h8l2 3h3a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></span></div><div><div style="font-size:14px;font-weight:600;margin-bottom:3px">Cambia tu foto</div><div style="font-size:12.5px;color:var(--color-muted)">Haz clic en la foto para subir una nueva. Podrás ajustar qué parte se ve.</div></div></div></div>
       <div class="detail-card"><h5>Apariencia</h5>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
           <div><div style="font-size:14px;font-weight:600">Tema de la app</div><div style="font-size:12.5px;color:var(--color-muted)">Claro u oscuro, siempre con las luces moradas.</div></div>
           <button class="btn btn-secondary btn-sm" onclick="toggleTheme()"><span id="set-theme-label">${state.theme==='dark'?'Oscuro':'Claro'}</span> · cambiar</button>
-        </div></div>
-      <div class="detail-card"><h5>Foto de perfil</h5><div class="set-avatar-row"><div class="set-avatar-wrap" onclick="document.getElementById('file-input').click()"><img class="set-avatar" id="set-avatar-img" src="${state.avatarUrl}"><span class="cam"><svg fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h3l2-3h8l2 3h3a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></span></div><div><div style="font-size:14px;font-weight:600;margin-bottom:3px">Cambia tu foto</div><div style="font-size:12.5px;color:var(--color-muted)">Haz clic en la foto para subir una nueva. Podrás ajustar qué parte se ve.</div></div></div></div>
+        </div></div>`;
+}
+
+/* ⚙️ Quién sos y tu seguridad */
+function ajustesCuenta(){
+  /* El correo sale de la sesión. Antes había uno escrito a mano en el código
+     ("arturo@lobby.gg"), así que la pantalla mostraba el mismo para todos. */
+  const correo = miCorreo || 'No disponible';
+  return `
       <div class="detail-card"><h5>Perfil</h5>
         <div class="form-group" style="margin-bottom:14px"><div class="glabel">Nombre visible</div><div class="ghint">Así te ven los demás. Lo puedes cambiar cuando quieras.</div><input type="text" id="set-displayname" value="${state.displayName}"></div>
         <div class="form-group" style="margin-bottom:14px"><div class="glabel">Tu país</div><div class="ghint">Elige tu país de la lista.</div>${countrySelect('set-country',state.country||'Costa Rica')}</div>
@@ -4285,8 +4327,8 @@ function settingsView(){
           <div><div style="font-size:14px;font-weight:600">Contraseña</div><div style="font-size:12.5px;color:var(--color-muted)">Cámbiala cuando quieras para mantener tu cuenta segura.</div></div>
           <button class="btn btn-secondary btn-sm" onclick="openModal('modal-password')">Cambiar</button>
         </div></div>
-      <div class="detail-card"><h5>Cuenta</h5><div class="soy-list"><div class="soy-item"><span class="k">Correo</span> arturo@lobby.gg</div><div class="soy-item"><span class="k">Edad</span> Verificado +18 ✅</div></div></div>
-      <button class="btn btn-secondary" onclick="cerrarSesion()">Cerrar sesión</button></div>`;
+      <div class="detail-card"><h5>Datos de la cuenta</h5><div class="soy-list"><div class="soy-item"><span class="k">Correo</span> ${escapeHtml(correo)}</div></div></div>
+      <button class="btn btn-secondary" onclick="cerrarSesion()">Cerrar sesión</button>`;
 }
 function saveProfile(){
   const v=(document.getElementById('set-displayname')||{}).value;
@@ -6742,6 +6784,9 @@ async function revisarSesionGuardada(){
     const { data, error } = await sb.auth.getSession();
     if(error) return;                       // ante la duda, pantalla de bienvenida
     if(!data || !data.session) return;      // no hay sesión guardada: a loguearse
+    /* De paso me guardo el correo: Ajustes lo muestra y no quiero pedirlo de
+       nuevo cada vez que abrís esa pantalla. */
+    if(data.session.user) miCorreo = data.session.user.email || miCorreo;
     await cargarMiPerfil();                 // traigo nombre, estilo, país y foto
     await goApp('home');                    // el await importa: destapo recién cuando la app está lista
   }catch(e){ /* si algo falla, se queda la pantalla de bienvenida */ }
