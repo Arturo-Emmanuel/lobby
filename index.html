@@ -622,15 +622,22 @@ html.revisando-sesion #app{display:none !important}
 .matching-title{margin-top:24px;font-size:22px;font-weight:700}
 .matching-sub{color:var(--color-muted);margin-top:8px;font-size:14px}
 .matching-sub b{color:var(--color-text);font-variant-numeric:tabular-nums}
-.matching-count{margin-top:20px;display:flex;align-items:center;gap:9px;font-size:13.5px;
-  color:var(--color-muted);background:var(--color-card);border:1px solid var(--color-border);
-  border-radius:99px;padding:9px 16px;max-width:92vw}
-.matching-count b{color:var(--color-primary)}
-.mc-dot{width:8px;height:8px;border-radius:50%;background:var(--color-success);flex-shrink:0;
-  animation:mcParpadeo 1.6s ease-in-out infinite}
-@keyframes mcParpadeo{0%,100%{opacity:1}50%{opacity:.35}}
+/* El progreso hacia el grupo: dice cuánto falta, no un conteo suelto */
+.match-progress{margin-top:24px;width:100%;max-width:340px;background:var(--color-card);
+  border:1px solid var(--color-border);border-radius:16px;padding:16px 18px}
+.mp-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-size:13.5px;color:var(--color-muted);margin-bottom:11px}
+.mp-head b{color:var(--color-text);font-size:16px}
+.mp-faltan{font-size:12px;text-align:right}
+.mp-bar{height:7px;border-radius:99px;background:var(--color-bg-deep);overflow:hidden}
+.mp-fill{height:100%;border-radius:99px;background:var(--grad);transition:width .45s ease}
+.mp-slots{display:flex;gap:7px;margin-top:12px;justify-content:center}
+.mp-slot{width:11px;height:11px;border-radius:50%;background:var(--color-bg-deep);
+  border:1.5px solid var(--color-border);transition:.3s}
+.mp-slot.on{background:var(--color-primary);border-color:var(--color-primary);
+  box-shadow:0 0 10px rgba(200,77,255,.5)}
 .matching-tip{margin-top:18px;font-size:12px;color:var(--color-muted);max-width:330px}
-@media (prefers-reduced-motion:reduce){ .matching-orb,.mc-dot{animation:none} }
+@media (prefers-reduced-motion:reduce){ .matching-orb{animation:none} .mp-fill{transition:none} }
 
 /* ══ Pestañas dentro de Mensajes en celular (Problema 3) ══
    Subrayado en vez de burbujas: una burbuja redonda dice "soy una opción,
@@ -5858,12 +5865,25 @@ function pararLatidoCola(){
   if(relojLatidoCola){ clearInterval(relojLatidoCola); relojLatidoCola = null; }
 }
 
-/* ¿Quiénes son candidatos para mi búsqueda? Los que buscan el MISMO juego,
-   un tamaño compatible, todavía no tienen grupo, y siguen latiendo. */
+/* ¿Quiénes pueden formar grupo CONMIGO? Cuatro condiciones:
+     1. el mismo juego
+     2. el MISMO tamaño de grupo que pedí
+     3. todavía sin grupo asignado
+     4. que sigan latiendo (no son colas fantasma)
+
+   Lo del tamaño es la condición que faltaba, y sin ella la Fase 2 armaría
+   grupos equivocados: si vos pedís 2 y el otro pide 5, juntarlos le daría al
+   segundo un grupo de 2 que nunca pidió. Acá la regla es: lo que pediste es
+   lo que recibís.
+
+   OJO: esta lista ME INCLUYE a mí, a propósito. No es "los otros que buscan",
+   es "los que van a formar el grupo" — y yo soy uno de ellos. Por eso la
+   pantalla dice "2 de 3 listos" y no un conteo suelto. */
 function candidatosEnCola(){
   const corte = Date.now() - 60*1000;   // más de 1 min sin latir: fantasma
   return colaActual.filter(c =>
     c.juego === colaJuego &&
+    Number(c.cantidad) === Number(colaCantidad) &&
     !c.grupo_id &&
     new Date(c.visto_en || c.entro_en).getTime() > corte
   );
@@ -5873,18 +5893,31 @@ function candidatosEnCola(){
    siga funcionando y no quede atrapado el usuario. */
 function matchingView(){
   const cat = GAME_CATALOG[colaJuego] || {};
-  const esperando = candidatosEnCola().length;
+  /* Cuántos de los que hacen falta ya están. Nunca muestro más que el tope:
+     si hubiera 4 esperando para grupos de 3, "4 de 3" no tendría sentido. */
+  const listos = Math.min(candidatosEnCola().length, colaCantidad);
+  const faltan = Math.max(0, colaCantidad - listos);
+  const pct = Math.round((listos / colaCantidad) * 100);
   const segs = Math.max(0, Math.round((Date.now() - colaDesde)/1000));
+
+  const mensaje = faltan === 0
+    ? '¡Grupo completo! Preparando…'
+    : (faltan === 1 ? 'Falta 1 jugador más' : `Faltan ${faltan} jugadores más`);
+
   return `<div class="matching-wrap">
     <div class="matching-orb">⚡</div>
     <h2 class="matching-title">Buscando jugadores de ${escapeHtml(cat.name || 'tu juego')}…</h2>
-    <p class="matching-sub">Grupo de ${colaCantidad} · llevás <b id="cola-reloj">${mmss(segs)}</b> esperando</p>
-    <div class="matching-count">
-      <span class="mc-dot"></span>
-      ${esperando === 1
-        ? 'Sos el único buscando este juego por ahora'
-        : `<b>${esperando}</b> personas buscando ${escapeHtml(cat.name || '')} ahora mismo`}
+    <p class="matching-sub">llevás <b id="cola-reloj">${mmss(segs)}</b> esperando</p>
+
+    <div class="match-progress">
+      <div class="mp-head"><span><b>${listos}</b> de <b>${colaCantidad}</b> jugadores</span><span class="mp-faltan">${mensaje}</span></div>
+      <div class="mp-bar"><div class="mp-fill" style="width:${pct}%"></div></div>
+      <div class="mp-slots">${
+        Array.from({length: colaCantidad}, (_,i)=>
+          `<span class="mp-slot ${i < listos ? 'on' : ''}"></span>`).join('')
+      }</div>
     </div>
+
     <button class="btn btn-secondary" style="margin-top:26px;min-width:200px" onclick="cancelarBusqueda()">Cancelar búsqueda</button>
     <p class="matching-tip">Podés seguir navegando: la búsqueda sigue activa mientras no la canceles.</p>
   </div>`;
