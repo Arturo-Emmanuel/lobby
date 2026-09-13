@@ -249,9 +249,6 @@ html.revisando-sesion #app{display:none !important}
 .rh-more:active{transform:scale(.94) rotate(90deg)}
 .rh-more svg{transition:transform .2s ease}
 .rh-more svg{width:20px;height:20px}
-.room-info-drop{display:none;position:absolute;top:56px;right:16px;z-index:30;min-width:190px;padding:8px;border:1px solid var(--color-border);border-radius:14px;background:var(--color-card);box-shadow:0 12px 40px rgba(0,0,0,.5);flex-direction:column;gap:4px}
-.room-info-drop.open{display:flex}
-.room-info-drop .drop-cats{display:flex;flex-wrap:wrap;gap:5px;padding:6px 8px 8px;border-bottom:1px solid var(--color-border);margin-bottom:4px}
 .rid-cats{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .rid-compat{font-size:13px;color:var(--color-muted);display:flex;align-items:center;gap:7px}
 .rid-compat .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
@@ -1101,7 +1098,19 @@ html.revisando-sesion #app{display:none !important}
 @media(max-width:880px){.banners-grid{grid-template-columns:repeat(2,1fr)}}
 
 /* Animación de aparición del menú de 3 puntitos */
-.room-info-drop.open{animation:dropIn .18s ease}
+/* ══ El menú ⋯ del Lobi en escritorio, colgado del <body> (regla 11) ══
+   Antes vivía dentro de la portada, y la portada tiene overflow:hidden para
+   recortar la imagen del banner. Resultado: el menú se cortaba justo donde
+   terminaba la foto y parecía que el chat se lo comía. Ningún z-index arregla
+   eso: un recorte del padre no se negocia. La única salida es que el menú NO
+   tenga ese padre. */
+.lobi-drop{position:fixed;z-index:70;min-width:215px;max-width:calc(100vw - 24px);
+  padding:8px;border:1px solid var(--color-border);border-radius:14px;
+  background:var(--color-card);box-shadow:0 12px 40px rgba(0,0,0,.5);
+  display:flex;flex-direction:column;gap:4px;animation:dropIn .18s ease}
+.lobi-drop .drop-cats{display:flex;flex-wrap:wrap;gap:5px;padding:6px 8px 8px;
+  border-bottom:1px solid var(--color-border);margin-bottom:4px}
+.lobi-drop-fondo{position:fixed;inset:0;z-index:69;background:transparent}
 @keyframes dropIn{from{opacity:0;transform:translateY(-6px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
 
 /* ══════════ SIDEBAR COLAPSABLE ══════════ */
@@ -1249,10 +1258,11 @@ html.revisando-sesion #app{display:none !important}
 }
 
 /* ══════════ HOJA DEL MENÚ ⋯ EN CELULAR (Problema 1) ══════════
-   Antes esto intentaba transformar el .room-info-drop del escritorio en una
-   hoja. No funcionaba nunca: ese elemento vive dentro de .rh-desktop-only, que
-   en celular es display:none, y un hijo de un padre oculto no se dibuja aunque
-   le pongas mil !important.
+   Antes esto intentaba transformar el menú de escritorio (que entonces vivía
+   dentro de la portada) en una hoja. No funcionaba nunca: ese elemento estaba
+   dentro de .rh-desktop-only, que en celular es display:none, y un hijo de un
+   padre oculto no se dibuja aunque le pongas mil !important. (Hoy el menú de
+   escritorio también se cuelga del <body>, por el mismo motivo.)
 
    Ahora la hoja es un elemento propio que el JS cuelga del <body>, donde nadie
    la puede ocultar. Vive fuera de todo @media a propósito: solo se crea en
@@ -1446,14 +1456,18 @@ html.revisando-sesion #app{display:none !important}
   <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-already')">Entendido</button><button class="btn btn-primary" style="flex:1" onclick="closeModal('modal-already');navTo('room')">Ir a mi Lobi</button></div>
 </div></div>
 
-<!-- modal: el líder le pone nombre a su Lobi recién nacido (Fase 4) -->
-<div class="modal-overlay" id="modal-nombre-lobi"><div class="modal">
-  <h3>⚠️ Te tocó ser el líder</h3><p>Lobby le puso un nombre provisional a tu Lobi. Podés dejarlo así o ponerle el tuyo — siempre podés cambiarlo después desde el menú del Lobi.</p>
-  <div class="form-group" style="margin-bottom:0">
+<!-- modal: editar el Lobi (nombre y características). Lo usa el líder recién
+     nacido (Fase 4) y también el dueño cuando quiera, desde el menú ⋯ -->
+<div class="modal-overlay" id="modal-editar-lobi"><div class="modal">
+  <h3 id="edit-lobi-titulo">Editar tu Lobi</h3><p id="edit-lobi-sub">Cambiá lo que quieras. Todos los que están adentro lo van a ver al instante.</p>
+  <div class="form-group">
     <div class="glabel">Nombre del Lobi</div>
-    <input type="text" id="nombre-lobi-input" maxlength="40" placeholder="Mi Lobi">
+    <input type="text" id="edit-lobi-nombre" maxlength="40" placeholder="Mi Lobi">
   </div>
-  <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-nombre-lobi')">Después</button><button class="btn btn-primary" style="flex:1" onclick="guardarNombreLobi()">Guardar</button></div>
+  <div class="cat-block"><div class="cblabel">Modo de juego</div><div class="chip-grid" data-single id="edit-lobi-modo"></div></div>
+  <div class="cat-block"><div class="cblabel">Estilo</div><div class="chip-grid" data-single id="edit-lobi-estilo"></div></div>
+  <div class="cat-block" style="margin-bottom:0"><div class="cblabel">Objetivo</div><div class="chip-grid" data-single id="edit-lobi-objetivo"></div></div>
+  <div class="modal-actions"><button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-editar-lobi')">Después</button><button class="btn btn-primary" style="flex:1" onclick="guardarEdicionLobi()">Guardar cambios</button></div>
 </div></div>
 
 <!-- modal calificar al salir -->
@@ -2379,6 +2393,47 @@ function desuscribirseMiembros(){
   if(canalMiembros){ sb.removeChannel(canalMiembros); canalMiembros=null; }
 }
 
+/* ====== LA FICHA DEL LOBI, EN VIVO ==========================================
+   Problema que encontró Arturo: el líder cambiaba el nombre del Lobi y solo lo
+   veía él. Y no era que no se guardara — se guardaba perfecto. Lo que pasaba
+   es que los demás nunca volvían a preguntar.
+
+   `state.currentLobi` se llenaba UNA vez, al entrar, y se quedaba con esa foto
+   para siempre. Es el mismo error de siempre en otra ropa: guardar la
+   respuesta en vez de la pregunta (regla 7). Ahora el Lobi tiene su propia
+   radio: si alguien cambia el nombre, el banner o las características, a todos
+   les llega y se repinta solo. */
+let canalLobi = null;
+
+function suscribirseLobi(lobiId){
+  desuscribirseLobi();
+  const dbId = Number(String(lobiId).replace('real-',''));
+  if(!dbId) return;
+  canalLobi = sb.channel('lobi-'+lobiId)
+    .on('postgres_changes',
+      { event:'UPDATE', schema:'public', table:'lobis', filter:'id=eq.'+dbId },
+      (msg)=>{ aplicarFichaLobi(msg && msg.new); })
+    .subscribe();
+}
+
+function desuscribirseLobi(){
+  if(canalLobi){ sb.removeChannel(canalLobi); canalLobi=null; }
+}
+
+/* Piso los datos de la ficha con los que manda la base, pero NO toco lo que la
+   base no sabe (los miembros, que los maneja su propio canal). Por eso copio
+   campo por campo en vez de reemplazar el objeto entero. */
+function aplicarFichaLobi(fila){
+  if(!fila || !state.currentLobi) return;
+  if(state.currentLobi.id !== 'real-'+fila.id) return;   // es otro Lobi, no el mío
+  const l = state.currentLobi;
+  const nuevo = filaALobi(fila);
+  ['name','mode','cats','banner','terminaEn','objetivoPrincipal','tieneObjetivo','maxJugadores']
+    .forEach(k=>{ l[k] = nuevo[k]; });
+  renderActiveLobiSidebar();
+  if(state.view === 'room') refrescarVista();
+}
+
 /* ====== LATIDO DEL LOBI (Bug B) ======
    Mientras la pestaña está abierta en un Lobi real, cada 30 seg le avisa a
    la base "sigo acá" (escribe visto_en). Si cierro la pestaña, deja de latir,
@@ -2522,6 +2577,7 @@ async function verificarQueMiLobiSigueVivo(){
 function limpiarSalaLocal(){
   desuscribirseChat();
   desuscribirseMiembros();
+  desuscribirseLobi();
   desuscribirseDesk();
   pararRelojEncuestas();
   pararRelojLobi();
@@ -2563,6 +2619,7 @@ function sintonizarSala(lobiId){
   cargarMensajesLobi(lobiId);
   suscribirseChat(lobiId);
   suscribirseMiembros(lobiId);
+  suscribirseLobi(lobiId);
   cargarObjetivos(lobiId);
   cargarEncuestas(lobiId);
   suscribirseDesk(lobiId);
@@ -4711,7 +4768,6 @@ function roomView(){
               <button class="rh-more cover-more" onclick="toggleRoomInfo()" title="Más opciones"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
             </div>
             ${renderMisionDestacada()}
-            <div class="room-info-drop" id="room-info-drop">${contenidoMenuLobi()}</div>
           </div>
         </div>
         <div class="chat-box">
@@ -5025,7 +5081,7 @@ function contenidoMenuLobi(){
      tienen dueño en la base, así que ahí tampoco aparece. */
   const soyDueno = l.real && l.id_creador && l.id_creador === miId;
   const itemNombre = soyDueno
-    ? `<button class="drop-item" onclick="cerrarRoomInfo();abrirCambiarNombre()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg> Cambiar nombre</button>`
+    ? `<button class="drop-item" onclick="cerrarRoomInfo();abrirCambiarNombre()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg> Editar Lobi</button>`
     : '';
   return `<div class="drop-cats">${gameTag(gid,l.mode)}${cats}</div>
     ${itemNombre}
@@ -5040,8 +5096,45 @@ function esPantallaChica(){
 
 function toggleRoomInfo(){
   if(esPantallaChica()){ toggleHojaLobi(); return; }
-  const d=document.getElementById('room-info-drop');
-  if(d) d.classList.toggle('open');
+  abrirDropLobi();
+}
+
+/* El menú de escritorio, colgado del <body> y colocado debajo del botón ⋯.
+   Como es `position:fixed`, sus coordenadas son de la PANTALLA, así que se las
+   pido al botón con getBoundingClientRect() en vez de heredarlas de un padre
+   (que es lo que antes lo dejaba atrapado dentro de la portada). */
+function abrirDropLobi(){
+  if(document.getElementById('lobi-drop')){ cerrarRoomInfo(); return; }
+  if(!state.currentLobi) return;
+  const boton = document.querySelector('.room-chat .cover-more') || document.querySelector('.cover-more');
+
+  const fondo = document.createElement('div');
+  fondo.id = 'lobi-drop-fondo';
+  fondo.className = 'lobi-drop-fondo';
+  fondo.onclick = cerrarRoomInfo;
+  document.body.appendChild(fondo);
+
+  const drop = document.createElement('div');
+  drop.id = 'lobi-drop';
+  drop.className = 'lobi-drop';
+  drop.innerHTML = contenidoMenuLobi();
+  document.body.appendChild(drop);
+
+  const r = boton ? boton.getBoundingClientRect() : null;
+  if(r && typeof r.right === 'number' && typeof r.bottom === 'number'){
+    const ancho = drop.offsetWidth || 215;
+    const alto  = drop.offsetHeight || 160;
+    /* Alineado a la derecha del botón, pero sin salirse de la pantalla; y si
+       abajo no cabe, se abre hacia arriba. */
+    let izq = Math.min(Math.max(12, r.right - ancho), window.innerWidth - ancho - 12);
+    let arr = r.bottom + 8;
+    if(arr + alto > window.innerHeight - 12) arr = Math.max(12, r.top - alto - 8);
+    drop.style.left = izq + 'px';
+    drop.style.top  = arr + 'px';
+  } else {
+    drop.style.right = '20px';
+    drop.style.top = '80px';
+  }
 }
 
 /* La hoja de celular: se crea colgada del <body>, así ningún padre oculto
@@ -5068,8 +5161,10 @@ function toggleHojaLobi(){
 }
 
 function cerrarRoomInfo(){
-  const d=document.getElementById('room-info-drop');
-  if(d) d.classList.remove('open');
+  const drop=document.getElementById('lobi-drop');
+  if(drop) drop.remove();
+  const dropFondo=document.getElementById('lobi-drop-fondo');
+  if(dropFondo) dropFondo.remove();
 
   const fondo=document.getElementById('lobi-hoja-fondo');
   if(fondo){ fondo.classList.remove('open'); setTimeout(()=>fondo.remove(),280); }
@@ -5107,9 +5202,10 @@ function refreshObjectives(){
   const nueva=renderMisionDestacada();
   if(mis){ mis.outerHTML = nueva || ''; }
   else if(nueva){
+    /* La misión va al final de la portada. Antes se colgaba "antes del menú
+       ⋯", pero el menú ya no vive ahí: ahora se crea colgado del <body>. */
     const cover=document.querySelector('.cover-content');
-    const drop=document.getElementById('room-info-drop');
-    if(cover && drop) drop.insertAdjacentHTML('beforebegin', nueva);
+    if(cover) cover.insertAdjacentHTML('beforeend', nueva);
   }
 }
 let objDrag=null;
@@ -6361,40 +6457,94 @@ async function entrarAlLobiDelGrupo(lobiId, soyLider){
        encender la sala. No repito nada de eso acá. */
     enterLobi(filaALobi(fila), soyLider);
     if(soyLider){
-      setTimeout(()=>{
-        const inp = document.getElementById('nombre-lobi-input');
-        if(inp) inp.value = fila.nombre || '';
-        openModal('modal-nombre-lobi');
-      }, 700);
+      setTimeout(()=>{ abrirEditarLobi(true); }, 700);
     } else {
       toast('🎉 ¡Entraste al Lobi de tu grupo!');
     }
   }catch(e){ entrandoAlLobi = false; /* el grupo sigue en pantalla y se reintenta */ }
 }
 
-/* El líder le cambia el nombre desde el aviso. */
-async function guardarNombreLobi(){
-  const inp = document.getElementById('nombre-lobi-input');
-  const nuevo = ((inp||{}).value || '').trim();
-  closeModal('modal-nombre-lobi');
-  if(!nuevo || !state.currentLobi || !state.currentLobi.id.startsWith('real-')) return;
-  const idNum = Number(state.currentLobi.id.replace('real-',''));
-  try{
-    const { error } = await sb.from('lobis').update({ nombre: nuevo }).eq('id', idNum);
-    if(error) throw error;
-    state.currentLobi.name = nuevo;
-    renderActiveLobiSidebar();
-    refrescarVista();
-    toast('✅ Nombre guardado');
-  }catch(e){ toast('⚠️ No se pudo cambiar el nombre'); }
+/* ====== EDITAR EL LOBI ======================================================
+   Una sola ventana para el nombre y las características, usada en dos momentos:
+   el aviso al líder cuando el Lobi acaba de nacer, y "Editar Lobi" en el menú
+   ⋯ cuando quiera. Es la misma tarea, así que es la misma ventana; solo cambia
+   el título. */
+function pintarChipsEdicion(id, opciones, elegido){
+  const caja = document.getElementById(id);
+  if(!caja) return;
+  /* Sin onclick: el vigilante de chips de la app ya sabe pintar cualquier
+     .chip-grid con data-single. Si le pusiera el mío encima, se pisarían —
+     que fue exactamente el bug de "marco una opción y se marca otra". */
+  caja.innerHTML = (opciones||[]).map(o=>{
+    const sel = String(o).toUpperCase() === String(elegido||'').toUpperCase();
+    return `<button class="chip${sel?' sel':''}">${escapeHtml(String(o))}</button>`;
+  }).join('');
 }
 
-/* Abre el mismo aviso desde el menú del Lobi, para cambiarlo más tarde. */
-function abrirCambiarNombre(){
-  if(!state.currentLobi) return;
-  const inp = document.getElementById('nombre-lobi-input');
-  if(inp) inp.value = state.currentLobi.name || '';
-  openModal('modal-nombre-lobi');
+function abrirEditarLobi(esLiderNuevo){
+  const l = state.currentLobi;
+  if(!l) return;
+  const cat = GAME_CATALOG[l.game] || GAME_CATALOG.minecraft;
+  const tit = document.getElementById('edit-lobi-titulo');
+  const sub = document.getElementById('edit-lobi-sub');
+  if(tit) tit.textContent = esLiderNuevo ? '⚠️ Te tocó ser el líder' : 'Editar tu Lobi';
+  if(sub) sub.textContent = esLiderNuevo
+    ? 'Lobby armó tu Lobi con lo que tienen en común. Dale una repasada: lo que cambies lo ven todos al instante.'
+    : 'Cambiá lo que quieras. Todos los que están adentro lo van a ver al instante.';
+
+  const inp = document.getElementById('edit-lobi-nombre');
+  if(inp) inp.value = l.name || '';
+  /* cats = [modo, estilo, objetivo], en ese orden, tal como los guarda la base. */
+  const cats = l.cats || [];
+  pintarChipsEdicion('edit-lobi-modo',     cat.modes,      cats[0] || l.mode);
+  pintarChipsEdicion('edit-lobi-estilo',   cat.styles,     cats[1]);
+  pintarChipsEdicion('edit-lobi-objetivo', cat.objectives, cats[2]);
+  openModal('modal-editar-lobi');
+}
+
+/* Atajo para el menú ⋯ */
+function abrirCambiarNombre(){ abrirEditarLobi(false); }
+
+function chipElegido(id, porDefecto){
+  const sel = document.querySelector('#'+id+' .chip.sel');
+  /* Si no hay nada marcado, me quedo con lo que ya tenía. Guardar vacío sería
+     peor que no guardar: dejaría el Lobi sin modo ni estilo. */
+  const txt = sel ? String(sel.textContent||'').trim() : '';
+  return txt || porDefecto;
+}
+
+async function guardarEdicionLobi(){
+  const l = state.currentLobi;
+  closeModal('modal-editar-lobi');
+  if(!l || !l.id.startsWith('real-')) return;
+
+  const cats = l.cats || [];
+  const nombre = ((document.getElementById('edit-lobi-nombre')||{}).value || '').trim() || l.name;
+  const modo   = chipElegido('edit-lobi-modo',     cats[0] || l.mode);
+  const estilo = chipElegido('edit-lobi-estilo',   cats[1]);
+  const objetivo = chipElegido('edit-lobi-objetivo', cats[2]);
+
+  const idNum = Number(l.id.replace('real-',''));
+  try{
+    /* El .select('id') no es adorno: un UPDATE sin permiso devuelve 0 filas y
+       NINGÚN error (la lección del Problema 7). Sin esto, un día que falte una
+       política yo te diría "guardado" y no se habría guardado nada. */
+    const { data, error } = await sb.from('lobis')
+      .update({ nombre: nombre, modo: String(modo||'').toUpperCase(), estilo: estilo, objetivo: objetivo })
+      .eq('id', idNum)
+      .select('id');
+    if(error) throw error;
+    if(!data || data.length === 0){ toast('⚠️ No tenés permiso para editar este Lobi'); return; }
+
+    /* Lo pinto ya mismo en mi pantalla. A los demás les llega por el canal del
+       Lobi; a mí también, pero no quiero esperar el viaje de ida y vuelta. */
+    l.name = nombre;
+    l.mode = String(modo||'').toUpperCase();
+    l.cats = [l.mode, estilo, objetivo].filter(Boolean);
+    renderActiveLobiSidebar();
+    refrescarVista();
+    toast('✅ Lobi actualizado');
+  }catch(e){ toast('⚠️ No se pudo guardar: ' + (e.message||'')); }
 }
 
 /* Se acabaron los 30 segundos: saco del grupo a quien no dijo que sí.
