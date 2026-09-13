@@ -612,6 +612,26 @@ html.revisando-sesion #app{display:none !important}
 .mc-cover-img{background-size:cover;background-position:center}
 
 /* ====== crear lobi: elegir juego ====== */
+/* ══ Pantalla de búsqueda de emparejamiento (Mejora 4) ══ */
+.matching-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:56vh;text-align:center;padding:20px}
+.matching-orb{width:92px;height:92px;border-radius:50%;background:var(--grad);
+  display:flex;align-items:center;justify-content:center;font-size:40px;
+  box-shadow:0 0 50px rgba(200,77,255,.35);animation:latirOrbe 1.4s ease-in-out infinite}
+@keyframes latirOrbe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+.matching-title{margin-top:24px;font-size:22px;font-weight:700}
+.matching-sub{color:var(--color-muted);margin-top:8px;font-size:14px}
+.matching-sub b{color:var(--color-text);font-variant-numeric:tabular-nums}
+.matching-count{margin-top:20px;display:flex;align-items:center;gap:9px;font-size:13.5px;
+  color:var(--color-muted);background:var(--color-card);border:1px solid var(--color-border);
+  border-radius:99px;padding:9px 16px;max-width:92vw}
+.matching-count b{color:var(--color-primary)}
+.mc-dot{width:8px;height:8px;border-radius:50%;background:var(--color-success);flex-shrink:0;
+  animation:mcParpadeo 1.6s ease-in-out infinite}
+@keyframes mcParpadeo{0%,100%{opacity:1}50%{opacity:.35}}
+.matching-tip{margin-top:18px;font-size:12px;color:var(--color-muted);max-width:330px}
+@media (prefers-reduced-motion:reduce){ .matching-orb,.mc-dot{animation:none} }
+
 /* ══ Pestañas dentro de Mensajes en celular (Problema 3) ══
    Subrayado en vez de burbujas: una burbuja redonda dice "soy una opción,
    elegime" (por eso las usamos para filtrar en Buscar). Acá no estás
@@ -1475,6 +1495,16 @@ html.revisando-sesion #app{display:none !important}
   <h3>¿Con qué juego quieres emparejar? ⚡</h3><p>Lobby te buscará jugadores compatibles según tus respuestas en ese juego.</p>
   <div class="create-game-grid" id="match-game-grid"></div>
   <div class="modal-actions" style="margin-top:20px"><button class="btn btn-secondary btn-block" onclick="closeModal('modal-match-game')">Cancelar</button></div>
+</div></div>
+
+<!-- Paso 2 del emparejamiento: cuánta gente querés en el grupo (Mejora 4) -->
+<div class="modal-overlay" id="modal-match-size"><div class="modal">
+  <h3>¿De cuántos quieres el grupo? 👥</h3><p id="match-size-sub">Lobby va a buscar gente hasta juntar ese número.</p>
+  <div class="chip-grid" style="margin:16px 0 4px" id="match-size-grid"></div>
+  <div class="modal-actions" style="margin-top:22px">
+    <button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-match-size')">Cancelar</button>
+    <button class="btn btn-primary" style="flex:1" onclick="empezarBusqueda()">Buscar ⚡</button>
+  </div>
 </div></div>
 
 <div class="modal-overlay" id="modal-password"><div class="modal">
@@ -3187,6 +3217,10 @@ async function goApp(view){
   cargarInvitaciones().then(()=>{ if(state.view==='messages') refrescarVista(); });
   suscribirseInvitaciones();
   arrancarRelojInvitaciones();
+  /* Si quedó una fila mía en la cola de una sesión anterior (cerraste la
+     pestaña buscando), la limpio al arrancar. Tu caso raro "usuario que cierra
+     la página mientras busca": empezás limpio, no fantasma. (Mejora 4) */
+  limpiarMiColaVieja();
   /* ¿Ya estaba dentro de un Lobi? Se lo pregunto a Supabase, no a esta pestaña.
      Así funciona en otra pestaña, otro navegador u otro dispositivo. (Pilar 4) */
   restaurarMiLobiActivo();
@@ -3645,6 +3679,7 @@ const views={
   profile:()=> state._profileTarget ? fullProfileView(state._profileTarget) : myProfileView(),
   create:()=>createView(),
   settings:()=>settingsView(),
+  matching:()=>matchingView(),
 };
 
 /* ====== AMIGOS Y SOLICITUDES: TROZOS COMPARTIDOS (Problema 3) ===============
@@ -4186,6 +4221,9 @@ function confirmJoin(){
   if(state.pendingLobi)enterLobi(state.pendingLobi,false);
 }
 function enterLobi(lobi,created){
+  /* Si estaba buscando grupo y entro a un Lobi por otro lado, salgo de la
+     cola: no puedo estar jugando y esperando al mismo tiempo. (Mejora 4) */
+  if(enCola) cancelarBusqueda(false);
   roomTab='members';   // en móvil arranca en Miembros (que lleva la portada y misión)
   const c=JSON.parse(JSON.stringify(lobi));
   const esReal=c.id.startsWith('real-');
@@ -4232,6 +4270,13 @@ function finalizeLeave(){
 }
 function renderActiveLobiSidebar(){
   const slot=document.getElementById('sb-active-lobi-slot');
+  /* Buscando grupo: una tarjeta para poder volver a la pantalla de búsqueda.
+     Sin esto, al navegar a otra sección la búsqueda seguía viva pero no había
+     forma de volver a verla ni de cancelarla. (Mejora 4) */
+  if(!state.currentLobi && enCola){
+    slot.innerHTML=`<div class="sb-active-lobi" onclick="navTo('matching')"><div class="sal-label"><span class="sal-dot" style="width:7px;height:7px;border-radius:50%;background:var(--color-primary);display:inline-block"></span><span class="sal-label-text"> Buscando grupo</span></div><div class="sal-name">⚡ Emparejando…</div><div class="sal-meta">toca para volver</div></div><div class="sb-divider"></div>`;
+    return;
+  }
   if(state.currentLobi){const l=state.currentLobi;slot.innerHTML=`<div class="sb-active-lobi" onclick="navTo('room')"><div class="sal-label"><span class="sal-dot" style="width:7px;height:7px;border-radius:50%;background:var(--color-success);display:inline-block"></span><span class="sal-label-text"> Tu Lobi activo</span></div><div class="sal-name">${l.name}</div><div class="sal-meta">${l.members.length}/${topeDe(l)} · toca para volver</div></div><div class="sb-divider"></div>`;}
   else slot.innerHTML='';
 }
@@ -4505,6 +4550,11 @@ let relojInvitaciones = null;
 function arrancarRelojInvitaciones(){
   if(relojInvitaciones) return;
   relojInvitaciones = setInterval(()=>{
+    /* De paso, el cronómetro de la cola de emparejamiento (Mejora 4) */
+    if(enCola){
+      const cr = document.getElementById('cola-reloj');
+      if(cr) cr.textContent = mmss(Math.max(0, Math.round((Date.now()-colaDesde)/1000)));
+    }
     const relojes = document.querySelectorAll('.ic-reloj[data-expira]');
     if(!relojes.length) return;
     let vencioAlguna = false;
@@ -5660,20 +5710,184 @@ function emparejar(){
   }).join('');
   openModal('modal-match-game');
 }
+/* ====== EMPAREJAR DE VERDAD — FASE 1: LA COLA (Mejora 4) ===================
+   LO QUE HABÍA: "Emparejar" esperaba 1,8 segundos para PARECER que buscaba y
+   te metía en un Lobi de ejemplo con Daniel_Mc y Sofi_Gamer, que no existen.
+   Era una animación, no un sistema.
+
+   LO QUE HAY AHORA: una cola de verdad en Supabase. Entrás, esperás, y ahí
+   quedás registrado para que otros que también están buscando te encuentren.
+
+   Por qué la cola es su propia tabla y no un campo del perfil: porque esperar
+   es algo que EMPIEZA y TERMINA. Si fuera un campo del perfil, cada perfil
+   cargaría ese dato para siempre aunque nadie esté buscando. Una fila que se
+   crea y se borra dice mejor lo que está pasando. */
+
+let colaJuego = null;      // juego elegido para esta búsqueda
+let colaCantidad = 3;      // cuánta gente quiero en el grupo
+let enCola = false;        // ¿estoy esperando ahora mismo?
+let colaDesde = 0;         // cuándo entré (para el cronómetro)
+
 function emparejarConJuego(gid){
   closeModal('modal-match-game');
-  const cat=GAME_CATALOG[gid];
-  const c=document.getElementById('app-content');
-  c.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center"><div style="width:90px;height:90px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:40px;animation:pulse 1.2s infinite">⚡</div><h2 style="margin-top:24px;font-size:22px">Buscando tu escuadra en ${cat.name}…</h2><p style="color:var(--color-muted);margin-top:8px;max-width:340px">Lobby está encontrando jugadores compatibles con tus respuestas en ${cat.name}.</p></div><style>@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}</style>`;
-  // busca un Lobi existente de ese juego; si no hay, crea uno automático de ese juego
-  setTimeout(()=>{
-    const match=lobis.find(l=>(l.game||'minecraft')===gid && l.members.length<topeDe(l));
-    if(match){tryJoin(match.id);return;}
-    // no hay Lobi de ese juego con espacio: crear uno automático
-    const mode=cat.modes[0];
-    enterLobi({id:'match-'+gid,game:gid,name:`Escuadra ${cat.name}`,mode:mode.toUpperCase(),cats:[mode,state.me.style,cat.objectives[0]],compat:90,cover:cat.cover,
-      members:[{name:'Daniel_Mc',role:mode,seed:'Daniel',bg:'3da5ff',compat:94},{name:'Sofi_Gamer',role:'Explorador',seed:'Sofi',bg:'c84dff',compat:91}]},false);
-  },1800);
+  colaJuego = gid;
+  colaCantidad = 3;
+  const cat = GAME_CATALOG[gid] || {};
+  const sub = document.getElementById('match-size-sub');
+  if(sub) sub.textContent = `Lobby va a buscar gente para jugar ${cat.name||'este juego'} hasta juntar ese número.`;
+  pintarTamanosCola();
+  openModal('modal-match-size');
+}
+
+function pintarTamanosCola(){
+  const grid = document.getElementById('match-size-grid');
+  if(!grid) return;
+  /* De 2 a 5: el mínimo es 2 porque un Lobi de una persona no es un grupo, y
+     el máximo es 5 porque es el tope de un Lobi (manual, sección 15). */
+  grid.innerHTML = [2,3,4,5].map(n=>
+    `<button class="chip ${n===colaCantidad?'sel':''}" onclick="elegirTamanoCola(${n})">${n} jugadores</button>`
+  ).join('');
+}
+
+function elegirTamanoCola(n){
+  colaCantidad = n;
+  pintarTamanosCola();
+}
+
+/* Entro a la cola y muestro la pantalla de búsqueda. */
+async function empezarBusqueda(){
+  if(state.currentLobi){ closeModal('modal-match-size'); openModal('modal-already'); return; }
+  if(!colaJuego){ toast('⚠️ Elegí un juego primero'); return; }
+  closeModal('modal-match-size');
+
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    /* upsert y no insert: si quedó una fila mía de una búsqueda anterior que
+       no se limpió, la piso en vez de chocar contra la llave primaria. */
+    const { error } = await sb.from('cola_emparejamiento').upsert({
+      id_usuario: user.id,
+      nombre: state.displayName,
+      juego: colaJuego,
+      cantidad: colaCantidad,
+      grupo_id: null,
+      entro_en: new Date().toISOString(),
+      visto_en: new Date().toISOString()
+    });
+    if(error) throw error;
+  }catch(e){ toast('⚠️ No se pudo entrar a la cola: ' + e.message); return; }
+
+  enCola = true;
+  colaDesde = Date.now();
+  arrancarLatidoCola();
+  suscribirseCola();
+  cargarCola();
+  navTo('matching');
+}
+
+/* Salgo de la cola: borro mi fila y apago todo. */
+async function cancelarBusqueda(volverAInicio){
+  enCola = false;
+  pararLatidoCola();
+  try{
+    const { data:{ user } } = await sb.auth.getUser();
+    if(user) await sb.from('cola_emparejamiento').delete().eq('id_usuario', user.id);
+  }catch(e){ /* si falla, el latido deja de latir y el robot la limpia */ }
+  if(volverAInicio !== false) navTo('home');
+}
+
+/* Al arrancar la app, borro cualquier lugar mío en la cola que haya quedado
+   de antes. Es más honesto que restaurarlo: si cerraste la pestaña buscando,
+   ya no estabas mirando, y los demás no deberían seguir contándote. */
+async function limpiarMiColaVieja(){
+  try{
+    if(enCola) return;
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    await sb.from('cola_emparejamiento').delete().eq('id_usuario', user.id);
+  }catch(e){ /* si falla, el latido ausente la deja vencida igual */ }
+}
+
+/* Quiénes están esperando ahora mismo (para mostrar "3 buscando") */
+let colaActual = [];
+
+async function cargarCola(){
+  try{
+    const { data, error } = await sb.from('cola_emparejamiento').select('*');
+    if(error) return;
+    colaActual = data || [];
+    if(state.view === 'matching') refrescarVista();
+  }catch(e){ /* si falla, la pantalla muestra solo mi espera */ }
+}
+
+let canalCola = null;
+function suscribirseCola(){
+  if(canalCola) return;
+  canalCola = sb.channel('cola-emparejamiento')
+    .on('postgres_changes', { event:'*', schema:'public', table:'cola_emparejamiento' },
+      ()=>{ cargarCola(); })
+    .subscribe();
+}
+
+/* ====== LATIDO DE LA COLA ======
+   Mismo problema que en los Lobis: si cerrás la pestaña esperando, tu fila
+   quedaría ahí para siempre y otros creerían que seguís buscando. Eso son las
+   "colas fantasma" que anotaste. Con el latido, quien deja de latir se limpia.
+
+   Ojo: acá el latido es más corto que en los Lobis (15 seg) porque esperar en
+   una cola dura minutos, no una hora y media. Una cola fantasma estorba mucho
+   más rápido que una silla fantasma. */
+let relojLatidoCola = null;
+
+async function latirCola(){
+  try{
+    if(!enCola) return;
+    const { data:{ user } } = await sb.auth.getUser();
+    if(!user) return;
+    await sb.from('cola_emparejamiento')
+      .update({ visto_en: new Date().toISOString() })
+      .eq('id_usuario', user.id);
+  }catch(e){ /* el próximo latido reintenta */ }
+}
+
+function arrancarLatidoCola(){
+  pararLatidoCola();
+  relojLatidoCola = setInterval(latirCola, 15000);
+}
+function pararLatidoCola(){
+  if(relojLatidoCola){ clearInterval(relojLatidoCola); relojLatidoCola = null; }
+}
+
+/* ¿Quiénes son candidatos para mi búsqueda? Los que buscan el MISMO juego,
+   un tamaño compatible, todavía no tienen grupo, y siguen latiendo. */
+function candidatosEnCola(){
+  const corte = Date.now() - 60*1000;   // más de 1 min sin latir: fantasma
+  return colaActual.filter(c =>
+    c.juego === colaJuego &&
+    !c.grupo_id &&
+    new Date(c.visto_en || c.entro_en).getTime() > corte
+  );
+}
+
+/* La pantalla de "buscando". Es una vista propia para que la barra de abajo
+   siga funcionando y no quede atrapado el usuario. */
+function matchingView(){
+  const cat = GAME_CATALOG[colaJuego] || {};
+  const esperando = candidatosEnCola().length;
+  const segs = Math.max(0, Math.round((Date.now() - colaDesde)/1000));
+  return `<div class="matching-wrap">
+    <div class="matching-orb">⚡</div>
+    <h2 class="matching-title">Buscando jugadores de ${escapeHtml(cat.name || 'tu juego')}…</h2>
+    <p class="matching-sub">Grupo de ${colaCantidad} · llevás <b id="cola-reloj">${mmss(segs)}</b> esperando</p>
+    <div class="matching-count">
+      <span class="mc-dot"></span>
+      ${esperando === 1
+        ? 'Sos el único buscando este juego por ahora'
+        : `<b>${esperando}</b> personas buscando ${escapeHtml(cat.name || '')} ahora mismo`}
+    </div>
+    <button class="btn btn-secondary" style="margin-top:26px;min-width:200px" onclick="cancelarBusqueda()">Cancelar búsqueda</button>
+    <p class="matching-tip">Podés seguir navegando: la búsqueda sigue activa mientras no la canceles.</p>
+  </div>`;
 }
 
 /* ============ ROUTER ============ */
@@ -5754,6 +5968,7 @@ async function revisarSesionGuardada(){
    sin avisar, mi silla quedaría ocupada hasta que el robot la libere. */
 async function cerrarSesion(){
   try{
+    if(enCola) await cancelarBusqueda(false);   // no dejo mi lugar en la cola (Mejora 4)
     const lobiId = state.currentLobi ? state.currentLobi.id : null;
     limpiarSalaLocal();
     if(lobiId && lobiId.startsWith('real-')){
