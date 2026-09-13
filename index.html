@@ -648,6 +648,26 @@ html.revisando-sesion #app{display:none !important}
 .gf-sub{font-size:12px;color:var(--color-muted)}
 .gf-compat{font-size:14px;font-weight:700;flex-shrink:0}
 
+/* Votación (Fase 3) */
+.grupo-fila.votado{border-color:var(--color-success)}
+.gf-voto{font-size:12px;font-weight:700;flex-shrink:0;display:flex;align-items:center;gap:5px}
+.gf-voto.si{color:var(--color-success)}
+.gf-voto.esperando{color:var(--color-muted)}
+/* El punto que late mientras alguien no decide. Es el mismo gesto que usan los
+   chats para "está escribiendo": dice "hay alguien ahí" sin decir palabras. */
+.gf-punto{width:7px;height:7px;border-radius:50%;background:currentColor;
+  animation:latir 1.2s ease-in-out infinite}
+@keyframes latir{0%,100%{opacity:.35}50%{opacity:1}}
+.voto-reloj{margin-top:20px;font-size:13px;color:var(--color-muted)}
+.voto-reloj b{font-size:22px;font-weight:800;color:var(--color-text);display:block;
+  font-variant-numeric:tabular-nums;letter-spacing:1px}
+.voto-reloj.apurate b{color:var(--color-danger)}
+.voto-botones{margin-top:16px;display:flex;gap:10px;width:100%;max-width:360px}
+.voto-botones .btn{flex:1;min-width:0}
+.btn-si{background:var(--grad);color:#fff;border:none}
+.voto-esperando{margin-top:18px;font-size:13.5px;color:var(--color-muted);
+  display:flex;align-items:center;gap:8px;justify-content:center}
+
 .matching-tip{margin-top:18px;font-size:12px;color:var(--color-muted);max-width:330px}
 @media (prefers-reduced-motion:reduce){ .matching-orb{animation:none} .mp-fill{transition:none} }
 
@@ -4579,6 +4599,17 @@ function arrancarRelojInvitaciones(){
     if(enCola){
       const cr = document.getElementById('cola-reloj');
       if(cr) cr.textContent = mmss(Math.max(0, Math.round((Date.now()-colaDesde)/1000)));
+      /* Y la cuenta atrás de la votación (Fase 3). Cuando llega a cero, le
+         pido a la base que cierre: ella decide de verdad, con su propio reloj. */
+      if(grupoActual){
+        const quedan = segundosParaVotar();
+        const vr = document.getElementById('voto-reloj');
+        if(vr){
+          vr.textContent = mmss(quedan);
+          if(vr.parentElement) vr.parentElement.classList.toggle('apurate', quedan <= 10);
+        }
+        if(quedan <= 0 && !grupoCompletoYListo()) cerrarVotacion();
+      }
     }
     const relojes = document.querySelectorAll('.ic-reloj[data-expira]');
     if(!relojes.length) return;
@@ -5814,6 +5845,7 @@ async function empezarBusqueda(){
 async function cancelarBusqueda(volverAInicio){
   enCola = false;
   grupoActual = null;
+  votoEnviado = null;
   pararLatidoCola();
   try{
     const { data:{ user } } = await sb.auth.getUser();
@@ -5849,19 +5881,64 @@ async function cargarCola(){
     const { data, error } = await sb.from('cola_emparejamiento').select('*');
     if(error) return;
     if(miPedido !== colaPedido) return;   // llegó tarde: ya hay una foto más nueva
+
+    /* Quiénes estaban en mi grupo hasta hace un instante. Lo guardo ANTES de
+       pisar la lista, para poder ver quién se fue (abajo). */
+    const grupoPrevio = grupoActual;
+    const antesEnMiGrupo = grupoActual
+      ? colaActual.filter(c => c.grupo_id === grupoActual).map(c => c.id_usuario) : [];
+
     colaActual = data || [];
 
     /* ¿Me asignaron a un grupo? Puede haberlo armado otro navegador, así que
        la única forma de enterarme es mirando mi propia fila. (Fase 2) */
     const miFila = colaActual.find(c => c.id_usuario === miId);
-    const grupoNuevo = (miFila && miFila.grupo_id) || null;
+    let grupoNuevo = (miFila && miFila.grupo_id) || null;
+
+    /* EL ECO DEL GRUPO QUE YA SOLTÉ
+       Si acabo de decir ✕, puede llegar una lectura que salió ANTES de que mi
+       "me voy" se guardara, y me metería de vuelta en el grupo que ya dejé.
+       (El número de pedido no alcanza: esa lectura no es vieja, simplemente
+       empezó antes.) Así que ignoro ese grupo hasta ver mi fila libre con mis
+       propios ojos. Después de eso, si me vuelven a invitar al mismo, bien. */
+    if(grupoNuevo && grupoNuevo === grupoSoltado) grupoNuevo = null;
+    else if(!grupoNuevo) grupoSoltado = null;
     if(grupoNuevo !== grupoActual){
+      const salíDeUno = !!grupoActual && !grupoNuevo;
       grupoActual = grupoNuevo;
+      votoEnviado = null;              // grupo nuevo, voto nuevo
       if(grupoActual) toast('🎮 ¡Encontramos tu grupo!');
+      else if(salíDeUno){
+        /* Si sigo acá y el grupo desapareció de mi fila, es que se cerró la
+           votación sin mi ✓. Aviso, porque si no la pantalla cambia sola y
+           parece un error de la app. */
+        toast('⏰ Se acabó el tiempo, seguimos buscando');
+        colaDesde = Date.now();
+      }
+    }
+
+    /* ====== QUIÉN YA DIJO QUE NO ======
+       Sin esto pasaba algo tonto: alguien no votaba, la base lo sacaba del
+       grupo... y un segundo después yo lo volvía a meter, porque seguía libre
+       y seguía siendo compatible. Cada 30 segundos, lo mismo. El grupo no se
+       completaba nunca y los demás pagaban la espera.
+
+       Así que me acuerdo de quién estuvo en ESTE grupo y se fue, y no lo
+       vuelvo a llamar. La memoria dura lo que dura el grupo: si después se
+       arma otro, todos vuelven a tener su oportunidad. */
+    if(grupoActual && grupoActual === grupoPrevio){
+      const ahoraEnMiGrupo = colaActual.filter(c => c.grupo_id === grupoActual).map(c => c.id_usuario);
+      antesEnMiGrupo.forEach(id=>{
+        if(id !== miId && ahoraEnMiGrupo.indexOf(id) === -1 && vetados.indexOf(id) === -1) vetados.push(id);
+      });
+    } else if(grupoActual !== grupoPrevio){
+      vetados = [];
     }
 
     if(state.view === 'matching') refrescarVista();
-    if(!grupoActual) intentarFormarGrupo();
+    /* Sin gate: la misma función arma el grupo si no tengo, y le busca
+       reemplazo al que dijo ✕ si tengo uno con un hueco. */
+    intentarFormarGrupo();
   }catch(e){ /* si falla, la pantalla muestra solo mi espera */ }
 }
 
@@ -5907,7 +5984,7 @@ function arrancarLatidoCola(){
   /* Pido la cola de nuevo (y cargarCola reintenta armar al final). Antes esto
      solo reintentaba armar sobre la foto vieja de la cola. Además, si un aviso
      en vivo se perdiera, así me entero igual de que ya tengo grupo. */
-  relojGrupos = setInterval(()=>{ if(enCola && !grupoActual) cargarCola(); }, 4000);
+  relojGrupos = setInterval(()=>{ if(enCola) cargarCola(); }, 4000);
 }
 function pararLatidoCola(){
   if(relojLatidoCola){ clearInterval(relojLatidoCola); relojLatidoCola = null; }
@@ -5964,7 +6041,18 @@ function compatConUsuario(id_usuario){
   return calcCompat({ estilo:p.estilo, pais:p.pais, juegos:p.juegos });
 }
 
-let grupoActual = null;   // el grupo que me tocó (null mientras espero)
+let grupoActual = null;    // el grupo que me tocó (null mientras espero)
+let grupoSoltado = null;   // uno que acabo de dejar: no quiero volver a caer adentro
+
+/* Freno de mano, igual que `anotandome` con las sillas (regla 4). Dos motivos:
+   armar un grupo son varias idas y vueltas a la base y no quiero dos en vuelo
+   a la vez; y si la base tardara en reflejar lo que acaba de escribir, sin
+   este freno el reintento se llamaría a sí mismo sin parar. */
+let armando = false;
+
+/* Los que ya estuvieron en este grupo y se fueron (dijeron ✕ o no votaron).
+   No los vuelvo a llamar mientras el grupo siga vivo. */
+let vetados = [];
 
 /* ¿Hay grupo para mí? Lo intento armar yo mismo.
 
@@ -5975,11 +6063,27 @@ let grupoActual = null;   // el grupo que me tocó (null mientras espero)
    conclusión sobre quién es, y solo esa persona escribe. Y de paso es justo:
    el que más esperó es el primero en ser servido. */
 async function intentarFormarGrupo(){
-  if(!enCola || grupoActual) return;
-  const cands = candidatosEnCola();
-  if(cands.length < colaCantidad) return;    // todavía no somos suficientes
+  if(!enCola || armando) return;
 
-  const ordenados = [...cands].sort((a,b)=>{
+  /* Dos trabajos con la misma forma:
+       · no tengo grupo  → armar uno desde cero
+       · tengo grupo con un hueco (alguien dijo ✕) → rellenarlo
+     En los dos casos es "buscar gente libre que pase la vara y escribirla en
+     un grupo". Por eso es una sola función y no dos parecidas. */
+  const mios = grupoActual ? colaActual.filter(c => c.grupo_id === grupoActual) : [];
+  if(grupoActual && mios.length >= colaCantidad) return;   // completo: nada que hacer
+
+  const cands = candidatosEnCola();
+  /* Sin grupo yo ocupo uno de los lugares (estoy entre los libres); con grupo,
+     ya estoy adentro y todos los que faltan son gente nueva. */
+  const necesito = grupoActual ? (colaCantidad - mios.length) : (colaCantidad - 1);
+  if(cands.length < necesito + (grupoActual ? 0 : 1)) return;  // todavía no somos suficientes
+
+  /* Quién decide: si estoy armando, el que más esperó de los libres; si estoy
+     rellenando, el que más esperó DEL GRUPO. Siempre uno solo escribe. */
+  const jurado = grupoActual ? mios : cands;
+  if(!jurado.length) return;
+  const ordenados = [...jurado].sort((a,b)=>{
     const ta = new Date(a.entro_en).getTime(), tb = new Date(b.entro_en).getTime();
     /* Desempate por id para que, si dos entraron en el mismo milisegundo,
        los dos navegadores elijan igual y no se pisen. */
@@ -5989,16 +6093,18 @@ async function intentarFormarGrupo(){
 
   const vara = varaCompatibilidad(Math.round((Date.now() - colaDesde)/1000));
   const otros = cands
-    .filter(c => c.id_usuario !== miId)
+    .filter(c => c.id_usuario !== miId && vetados.indexOf(c.id_usuario) === -1)
     .map(c => Object.assign({}, c, { compat: compatConUsuario(c.id_usuario) }))
     .filter(c => c.compat >= vara)
     .sort((a,b) => b.compat - a.compat);       // los más compatibles primero
 
-  if(otros.length < colaCantidad - 1) return;  // hay gente, pero ninguno pasa la vara todavía
+  if(otros.length < necesito) return;  // hay gente, pero ninguno pasa la vara todavía
 
-  const elegidos = otros.slice(0, colaCantidad - 1);
-  const ids = [miId].concat(elegidos.map(c => c.id_usuario));
-  const gid = 'g-' + Date.now() + '-' + String(miId).slice(0,8);
+  const elegidos = otros.slice(0, necesito);
+  /* Si ya tengo grupo, no me vuelvo a mandar a mí mismo: solo mando a los
+     nuevos, y le paso el MISMO gid para que se sumen al que ya existe. */
+  const ids = (grupoActual ? [] : [miId]).concat(elegidos.map(c => c.id_usuario));
+  const gid = grupoActual || ('g-' + Date.now() + '-' + String(miId).slice(0,8));
 
   /* ====== POR QUÉ ESTO LO HACE LA BASE Y NO EL NAVEGADOR ===================
 
@@ -6013,32 +6119,129 @@ async function intentarFormarGrupo(){
      cualquiera, cualquiera puede meterte en el grupo que se le antoje). La
      cura es una FUNCIÓN en la base: ella sí puede tocar varias filas, pero
      solo hace lo que le dejamos hacer, y lo hace todo junto o nada. */
-  let armados = 0;
+  armando = true;
   try{
-    const { data, error } = await sb.rpc('armar_grupo', { ids: ids, gid: gid });
-    if(error) return;
-    armados = Number(data) || 0;
-  }catch(e){ return; }
+    let armados = 0;
+    try{
+      const { data, error } = await sb.rpc('armar_grupo', { ids: ids, gid: gid });
+      if(error) return;
+      armados = Number(data) || 0;
+    }catch(e){ return; }
 
-  /* La función devuelve 0 si alguien dejó de estar libre entre que yo miré y
-     yo escribí. No es un error: es que se me adelantaron. Reintento en la
-     próxima vuelta del reloj, con la cola ya actualizada. */
-  if(armados < colaCantidad) return;
+    /* La función devuelve 0 si alguien dejó de estar libre entre que yo miré y
+       yo escribí. No es un error: es que se me adelantaron. Reintento en la
+       próxima vuelta del reloj, con la cola ya actualizada. */
+    if(armados < colaCantidad) return;
 
+    await cargarCola();
+  } finally { armando = false; }
+}
+
+/* Vuelvo a la cola desde un grupo (decir ✕, o "seguir buscando"). */
+async function volverALaCola(){
+  if(!grupoActual) return;
+  grupoSoltado = grupoActual;   // para no volver a caer adentro por un eco
+  grupoActual = null;
+  votoEnviado = null;
+  try{
+    /* Solo me libero a MÍ. Los demás siguen en su grupo: si me voy, es mi
+       decisión, no la de ellos.
+
+       Y me pongo al final de la fila (entro_en de nuevo). Es lo justo: el
+       lugar en la fila es de quien está esperando, no de quien ya encontró
+       grupo y lo soltó. Además evita un problema feo: si conservara mi lugar,
+       volvería a ser el que más esperó, volvería a armar el MISMO grupo, y lo
+       soltaría otra vez. Un carrusel sin fin. */
+    await sb.from('cola_emparejamiento')
+      .update({ grupo_id: null, voto: null, entro_en: new Date().toISOString() })
+      .eq('id_usuario', miId);
+  }catch(e){}
+  colaDesde = Date.now();   // la vara vuelve a empezar exigente
   cargarCola();
 }
 
-/* Vuelvo a la cola desde un grupo (por ahora, el botón de la Fase 2). */
-async function volverALaCola(){
-  if(!grupoActual) return;
-  const gid = grupoActual;
-  grupoActual = null;
+/* ====== FASE 3: LA VOTACIÓN ===============================================
+
+   Encontrar gente compatible no alcanza: hay que querer jugar CON ella. Por
+   eso el grupo no se convierte en Lobi hasta que todos digan que sí.
+
+   Las dos decisiones que tomó Arturo, y por qué:
+
+   · Si alguien dice ✕, se va SOLO ESA PERSONA. Deshacer el grupo entero sería
+     castigar a los que sí dijeron que sí. El hueco se rellena con alguien
+     nuevo de la cola.
+   · Hay 30 segundos para votar. Sin reloj, una pestaña cerrada dejaría al
+     resto esperando para siempre.
+
+   El que no vota a tiempo cuenta como ✕: no es un castigo, es que el silencio
+   de una pestaña congelada no puede frenar a los demás. */
+const SEGUNDOS_PARA_VOTAR = 30;
+
+let votoEnviado = null;   // {gid} — lo que acabo de votar, antes de que vuelva la base
+
+/* Mi fila en la cola, tal como la ve la base ahora mismo. */
+function miFilaEnCola(){
+  return colaActual.find(c => c.id_usuario === miId) || null;
+}
+
+function yaVote(){
+  const mia = miFilaEnCola();
+  if(mia && mia.voto === true) return true;
+  /* Todavía no volvió la respuesta de la base, pero yo sé que voté: muestro
+     el ✓ ya mismo. Si la base dijera otra cosa, la próxima carga manda. */
+  return !!(votoEnviado && votoEnviado.gid === grupoActual);
+}
+
+/* Cuándo empezó a correr el reloj de ESTE grupo (lo pone la base al armarlo,
+   así que los tres relojes de los tres navegadores marcan lo mismo). */
+function inicioVotacion(){
+  const fila = colaActual.find(c => c.grupo_id === grupoActual && c.grupo_desde);
+  return fila ? new Date(fila.grupo_desde).getTime() : 0;
+}
+
+function segundosParaVotar(){
+  const ini = inicioVotacion();
+  if(!ini) return SEGUNDOS_PARA_VOTAR;
+  return Math.max(0, SEGUNDOS_PARA_VOTAR - Math.round((Date.now() - ini)/1000));
+}
+
+/* ¿Ya dijeron todos que sí? */
+function grupoCompletoYListo(){
+  const gente = colaActual.filter(c => c.grupo_id === grupoActual);
+  return gente.length >= colaCantidad && gente.every(c => c.voto === true);
+}
+
+async function votarSi(){
+  if(!grupoActual || yaVote()) return;
+  votoEnviado = { gid: grupoActual };
+  refrescarVista();                       // el ✓ aparece al instante
   try{
-    /* Solo me libero a MÍ. Los demás siguen en su grupo: si me voy, es mi
-       decisión, no la de ellos. */
-    await sb.from('cola_emparejamiento').update({ grupo_id: null }).eq('id_usuario', miId);
+    await sb.from('cola_emparejamiento')
+      .update({ voto: true }).eq('id_usuario', miId);
+  }catch(e){ votoEnviado = null; }
+  cargarCola();
+}
+
+async function votarNo(){
+  if(!grupoActual) return;
+  await volverALaCola();                  // decir ✕ es exactamente irse
+  toast('👍 Listo, seguimos buscando');
+}
+
+/* Se acabaron los 30 segundos: saco del grupo a quien no dijo que sí.
+
+   ¿Por qué lo hace la base y no yo? Porque tendría que escribir en filas
+   ajenas (regla 12). La función comprueba que YO soy del grupo y que el
+   tiempo REALMENTE se acabó según el reloj del servidor — no según el mío,
+   que puede estar adelantado. Si me adelanté, devuelve 0 y reintento. */
+let ultimoCierre = 0;
+async function cerrarVotacion(){
+  if(!grupoActual) return;
+  if(Date.now() - ultimoCierre < 2000) return;   // no la atosigo cada segundo
+  ultimoCierre = Date.now();
+  try{
+    await sb.rpc('cerrar_votacion', { gid: grupoActual });
   }catch(e){}
-  colaDesde = Date.now();   // la vara vuelve a empezar exigente
   cargarCola();
 }
 
@@ -6051,6 +6254,7 @@ function miembrosDelGrupo(){
       id_usuario: c.id_usuario,
       nombre: c.nombre || 'Jugador',
       soyYo: c.id_usuario === miId,
+      voto: (c.id_usuario === miId && yaVote()) ? true : (c.voto === true),
       compat: c.id_usuario === miId ? 100 : compatConUsuario(c.id_usuario)
     }))
     .sort((a,b) => (b.soyYo?1:0) - (a.soyYo?1:0) || b.compat - a.compat);
@@ -6059,24 +6263,54 @@ function miembrosDelGrupo(){
 function grupoView(){
   const cat = GAME_CATALOG[colaJuego] || {};
   const gente = miembrosDelGrupo();
+  const vote = yaVote();
+  const segs = segundosParaVotar();
+  const todosListos = grupoCompletoYListo();
+  /* Si alguien dijo ✕, el grupo queda con un hueco y hay que llenarlo antes de
+     seguir. Mientras tanto no tiene sentido mostrar el reloj: no se está
+     esperando una decisión, se está esperando a una persona. */
+  const faltaGente = gente.length < colaCantidad;
+
   const filas = gente.map(g=>{
     const p = directorioPerfiles[g.id_usuario] || {};
     const foto = avatarDe({ seed:g.nombre, bg:'c84dff', avatarFile: fotoDeUsuario(g.id_usuario) });
-    return `<div class="grupo-fila">
+    const marca = g.voto
+      ? '<div class="gf-voto si">✓ listo</div>'
+      : '<div class="gf-voto esperando"><span class="gf-punto"></span>decidiendo</div>';
+    return `<div class="grupo-fila${g.voto?' votado':''}">
       ${foto}
       <div class="gf-meta"><div class="gf-nombre">${escapeHtml(g.nombre)}${g.soyYo?' (tú)':''}</div>
-        <div class="gf-sub">${escapeHtml(p.estilo || 'Jugador')}</div></div>
-      ${g.soyYo ? '' : `<div class="gf-compat" style="color:${compatColor(g.compat)}">${g.compat}%</div>`}
+        <div class="gf-sub">${escapeHtml(p.estilo || 'Jugador')}${g.soyYo?'':' · '+g.compat+'% compatible'}</div></div>
+      ${marca}
     </div>`;
   }).join('');
 
+  /* Tres momentos, tres pies de pantalla distintos. */
+  let pie;
+  if(todosListos){
+    pie = `<div class="voto-esperando">🎉 ¡Todos dijeron que sí! Creando el Lobi…</div>
+      <p class="matching-tip">El Lobi se arma solo en el próximo paso.</p>`;
+  } else if(faltaGente){
+    pie = `<div class="voto-esperando"><span class="gf-punto"></span> Buscando a alguien más para el lugar que quedó libre…</div>
+      <button class="btn btn-secondary" style="margin-top:16px;min-width:200px" onclick="volverALaCola()">Seguir buscando por mi cuenta</button>`;
+  } else if(vote){
+    pie = `<div class="voto-esperando"><span class="gf-punto"></span> Esperando a los demás…</div>
+      <div class="voto-reloj${segs<=10?' apurate':''}"><b id="voto-reloj">${mmss(segs)}</b>para que decidan</div>
+      <button class="btn btn-secondary" style="margin-top:16px;min-width:200px" onclick="volverALaCola()">Mejor no, seguir buscando</button>`;
+  } else {
+    pie = `<div class="voto-reloj${segs<=10?' apurate':''}"><b id="voto-reloj">${mmss(segs)}</b>para decidir</div>
+      <div class="voto-botones">
+        <button class="btn btn-secondary" onclick="votarNo()">✕ No gracias</button>
+        <button class="btn btn-si" onclick="votarSi()">✓ ¡Jugar!</button>
+      </div>`;
+  }
+
   return `<div class="matching-wrap">
-    <div class="grupo-badge">¡ENCONTRADOS! 🎮</div>
-    <h2 class="matching-title">Tu grupo de ${escapeHtml(cat.name || 'juego')} está listo</h2>
-    <p class="matching-sub">Encontramos ${gente.length} jugadores compatibles con vos</p>
+    <div class="grupo-badge">${todosListos ? '¡GRUPO LISTO! 🎉' : '¡ENCONTRADOS! 🎮'}</div>
+    <h2 class="matching-title">${todosListos ? 'Todos quieren jugar' : '¿Jugás con ellos?'}</h2>
+    <p class="matching-sub">${escapeHtml(cat.name || 'Tu juego')} · grupo de ${colaCantidad}</p>
     <div class="grupo-lista">${filas}</div>
-    <button class="btn btn-secondary" style="margin-top:22px;min-width:200px" onclick="volverALaCola()">Seguir buscando</button>
-    <p class="matching-tip">La votación para crear el Lobi juntos viene en el próximo paso.</p>
+    ${pie}
   </div>`;
 }
 
