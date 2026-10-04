@@ -2592,6 +2592,14 @@ const SEG_REPINTAR_PRESENCIA = 15;    // cada cuánto repinto, para que el ⚫ a
 let presencias = {};            // id_usuario -> fila de la tabla 'presencia'
 let miPresencia = { disponibilidad:'disponible', mostrar_lobi:true };
 let miPresenciaHidratada = false;   // ¿ya leí mis ajustes guardados?
+/* ¿Ya llegó la presencia de la base, al menos una vez?
+   Hace falta para distinguir dos cosas que no son lo mismo:
+     · "todavía no sé nada de nadie"  → no dibujo nada
+     · "ya sé, y de esta persona no hay fila" → ⚫ Desconectado
+   Sin esta banderita, al abrir la app TODAS las tarjetas parpadearían en ⚫
+   durante el instante que tarda la consulta, y después saltarían a 🟢. Ese es
+   exactamente el parpadeo que ya sufrimos con "¡ENCONTRADOS!". */
+let presenciasCargadas = false;
 let ultimoEscrito = '';             // lo último que escribí, para reconocer mi propio eco
 let desfaseReloj = 0;               // hora del servidor menos la mía, en ms
 let relojServidorListo = false;     // ¿ya aprendí el desfase?
@@ -2611,9 +2619,13 @@ const PRES = {
   desconectado: { clave:'desconectado', emoji:'⚫', texto:'Desconectado', color:'var(--color-muted)'     },
 };
 
-/* El cálculo. Devuelve null cuando NO SÉ nada de esta persona (nunca abrió la
-   versión nueva de Lobby): en ese caso no dibujo nada, que es más honesto que
-   pintarla de ⚫ como si se hubiera desconectado.
+/* El cálculo. Devuelve null solo mientras la presencia TODAVÍA NO LLEGÓ de la
+   base: ahí no se dibuja nada, para que no parpadee todo en ⚫ al abrir la app.
+
+   Una vez que llegó, de quien no tiene fila (nunca abrió esta versión de Lobby)
+   se dibuja ⚫ Desconectado, que es la verdad: no está conectado. Lo eligió
+   Arturo el 4/10, después de probarlo y ver que una tarjeta sin circulito
+   parece una función a medio terminar.
 
    EL ORDEN IMPORTA, y es este a propósito:
 
@@ -2627,7 +2639,9 @@ const PRES = {
 function presenciaDe(id_usuario){
   if(!id_usuario) return null;
   const f = presencias[id_usuario];
-  if(!f) return null;                       // no sé nada: no invento
+  /* Sin fila: si la presencia ya llegó, es que nunca lo vimos → ⚫.
+     Si todavía no llegó, no dibujo nada y espero (nada de parpadeos). */
+  if(!f) return presenciasCargadas ? PRES.desconectado : null;
   if(f.activo === false) return PRES.desconectado;   // cerró sesión a propósito
   const marca = f.visto_en ? new Date(f.visto_en).getTime() : 0;
   if(relojServidorListo && marca){
@@ -2748,6 +2762,11 @@ async function cargarPresencias(){
     const mapa = {};
     (data||[]).forEach(f=>{ if(f.id_usuario) mapa[f.id_usuario] = f; });
     presencias = mapa;
+    /* Recién acá se levanta la banderita: la base contestó de verdad. Si la
+       consulta hubiera fallado, nos vamos por el 'return' de arriba y la
+       banderita queda baja — así un problema de internet no pinta a todo el
+       mundo de ⚫ (ante la duda, no desconectar a nadie). */
+    presenciasCargadas = true;
     /* La PRIMERA vez leo mis propios ajustes guardados. Esto tiene que pasar
        ANTES del primer latido: si latiera primero, escribiría los valores por
        defecto y te borraría el 🔴 Ocupado que habías dejado puesto. */
