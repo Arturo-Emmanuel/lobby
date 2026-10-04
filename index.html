@@ -204,6 +204,12 @@ html.revisando-sesion #app{display:none !important}
 .pres-txt:empty{display:none}
 .pres-inline{font-size:12px;font-weight:600}
 .pres-inline:empty{display:none}
+/* Mi propio puntito, en la tarjeta mía de la barra lateral. El borde es del
+   color del fondo de esa tarjeta (no del fondo de la app), para que se vea
+   recortado contra ella y no quede un aro raro alrededor. */
+.sb-user .avwrap .on-dot{position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;
+  border-radius:50%;background:var(--color-success);box-sizing:border-box;
+  border:2.5px solid var(--color-card)}
 .mini-btn{width:36px;height:36px;border-radius:10px;background:var(--color-card-2);border:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;transition:.15s;cursor:pointer}
 .mini-btn:hover{border-color:var(--color-primary)}
 .mini-btn svg{width:17px;height:17px}
@@ -1416,7 +1422,10 @@ html.revisando-sesion #app{display:none !important}
     <div class="sb-spacer"></div>
     <button class="nav-item" id="sb-notif-btn" onclick="toggleNotif(event)"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg> Notificaciones <span class="nav-badge hidden" id="notif-badge"></span></button>
     <button class="nav-item" data-view="settings" onclick="navTo('settings')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg> Ajustes</button>
-    <div class="sb-user" style="margin-top:12px" onclick="navTo('profile')"><img class="av" id="sb-avatar" src=""><div class="meta"><div class="nm" id="sb-username">ArturoYT</div><div class="lv">Ver mi perfil</div></div></div>
+    <!-- El puntito de MI actividad (Mejora 6). Arranca escondido y sin
+         data-pres: lo completa repintarPresencia() en cuanto sabe mi id. Así,
+         si algo fallara, no se ve un puntito mintiendo — simplemente no se ve. -->
+    <div class="sb-user" style="margin-top:12px" onclick="navTo('profile')"><div class="avwrap"><img class="av" id="sb-avatar" src=""><span class="on-dot" id="sb-pres" data-pres-modo="punto" style="display:none"></span></div><div class="meta"><div class="nm" id="sb-username">ArturoYT</div><div class="lv">Ver mi perfil</div></div></div>
   </aside>
 
   <div class="main">
@@ -2696,6 +2705,12 @@ function avatarConPunto(p, extra){
    te haría saltar el scroll. */
 function repintarPresencia(){
   try{
+    /* Mi puntito de la barra lateral está escrito a mano en el HTML, así que no
+       pudo nacer con mi id adentro (cuando se dibujó, todavía no había sesión).
+       Se lo pongo acá, antes de buscar los huecos, para que entre en la lista
+       de abajo como cualquier otro. */
+    const mio = document.getElementById('sb-pres');
+    if(mio && miId && mio.getAttribute('data-pres') !== miId) mio.setAttribute('data-pres', miId);
     document.querySelectorAll('[data-pres]').forEach(el=>{
       const pr = presenciaDe(el.getAttribute('data-pres'));
       if(el.getAttribute('data-pres-modo') === 'punto'){
@@ -4084,9 +4099,16 @@ function htmlResultados(){
   return `<div class="player-grid">${r.map(playerCard).join('')}</div>`;
 }
 
+/* PRESENCIA EN LAS TARJETAS: SOLO EL PUNTITO, SIN RENGLÓN DE TEXTO.
+   La primera versión ponía además "🟢 Conectado" entre el nombre y el estilo, y
+   Arturo lo cacheó: ese renglón empuja todo para abajo y deja la tarjeta
+   apretada. El puntito da la misma información y NO ocupa lugar, porque va
+   encima de la foto.
+   El texto se queda donde sí hay aire: perfil completo, tarjetita de perfil y
+   encabezado del chat privado. */
 function playerCard(p){
   return `<div class="player-card">${avatarConPunto(p)}
-    <div class="pinfo"><div class="pname">${escapeHtml(p.name)} <span class="star-rating-mini">★ ${p.rating}</span></div>${textoPresencia(p)}<div class="pgame">${escapeHtml(p.game)}</div>
+    <div class="pinfo"><div class="pname">${escapeHtml(p.name)} <span class="star-rating-mini">★ ${p.rating}</span></div><div class="pgame">${escapeHtml(p.game)}</div>
       <div class="pcompat" style="color:${compatColor(p.compat)}">${p.compat}% · ${compatLabel(p.compat)}</div></div>
     <div class="pactions"><button class="mini-btn" onclick="viewFullProfile('${p.name}')" title="Ver perfil"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0116 0v1"/></svg></button>
       <button class="mini-btn" onclick="openConversation('${p.name}')" title="Mensaje"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg></button>
