@@ -190,6 +190,20 @@ html.revisando-sesion #app{display:none !important}
 .player-card .pgame{font-size:12px;color:var(--color-muted)}
 .player-card .pcompat{font-size:12.5px;font-weight:600;margin-top:2px}
 .player-card .pactions{display:flex;gap:7px}
+/* ====== MEJORA 6 · PRESENCIA ==============================================
+   El puntito va PEGADO a la foto, así que la foto necesita un envoltorio con
+   position:relative. El envoltorio hereda el flex-shrink:0 que antes tenía la
+   foto: sin eso, en una tarjeta angosta la foto se achicaría. */
+.avwrap{position:relative;flex-shrink:0;line-height:0}
+.player-card .avwrap .on-dot{position:absolute;right:0;bottom:0;width:13px;height:13px;
+  border-radius:50%;background:var(--color-success);box-sizing:border-box;
+  border:2.5px solid var(--color-card)}
+/* :empty es la clave — antes de que el primer repintado llegue, estos huecos
+   están vacíos y NO deben ocupar lugar ni dejar un renglón en blanco. */
+.pres-txt{font-size:12px;font-weight:600;display:block}
+.pres-txt:empty{display:none}
+.pres-inline{font-size:12px;font-weight:600}
+.pres-inline:empty{display:none}
 .mini-btn{width:36px;height:36px;border-radius:10px;background:var(--color-card-2);border:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;transition:.15s;cursor:pointer}
 .mini-btn:hover{border-color:var(--color-primary)}
 .mini-btn svg{width:17px;height:17px}
@@ -2539,6 +2553,308 @@ document.addEventListener('visibilitychange', function(){
   if(!document.hidden){ latir(); verificarQueMiLobiSigueVivo(); }
 });
 
+/* ===========================================================================
+   MEJORA 6 · PRESENCIA — 🟢 Conectado · 🔴 Ocupado · 🎮 En un Lobi · ⚫ Desconectado
+   ===========================================================================
+
+   REGLA DE ORO (regla 5 / Problema 7): la presencia es PURA DECORACIÓN.
+   Nunca, por ningún motivo, saca a nadie de un Lobi, ni marca un Lobi como
+   vacío, ni libera una silla. Si mañana alguien se ve ⚫ estando adentro de un
+   Lobi, eso es un puntito mal pintado — no una razón para echarlo. Las sillas
+   las manda 'miembros' y su propio latido, que es otro mecanismo aparte.
+
+   CÓMO FUNCIONA, EN UNA FRASE: tu navegador dice "sigo acá" cada 30 segundos,
+   y los demás calculan tu estado restando. Guardo la PREGUNTA (cuándo te vi
+   por última vez), no la RESPUESTA ("está conectado") — regla 7.
+
+   ¿Por qué? Porque si guardara "conectado", al cerrar el navegador de golpe
+   nadie estaría ahí para cambiarlo a "desconectado", y te quedarías verde para
+   siempre. Restando, el silencio habla solo: nadie tiene que avisar nada.
+
+   EL CORTE SON 2 MINUTOS, y lo elegiste vos. El problema es que los
+   navegadores congelan las pestañas de fondo: si el corte fuera de 45 seg,
+   alguien que dejó Lobby abierto mientras juega aparecería desconectado
+   estando ahí. Con 2 minutos aguanta la congelada, y si cerraste el navegador
+   de golpe te ven verde como máximo 2 minutos. Es el punto medio.
+
+   LA TRAMPA DE LOS RELOJES: para restar hacen falta DOS horas, y si las tomo
+   de dos relojes distintos la resta miente. Una compu con la hora atrasada 10
+   minutos vería a todo el mundo desconectado. Solución: TODAS las horas las
+   pone el servidor (un trigger en la base sella visto_en), y mi navegador
+   aprende cuánto está desfasado leyendo la hora que le devuelve su propio
+   latido. Mientras no sepa el desfase, NO desconecta a nadie: ante la duda,
+   siempre verde. Un falso ⚫ es la falla fea; un verde de más no molesta. */
+
+const SEG_LATIDO_PRESENCIA   = 30;    // cada cuánto digo "sigo acá"
+const SEG_SILENCIO_OFFLINE   = 120;   // 2 minutos de silencio = ⚫ (tu decisión)
+const SEG_REPINTAR_PRESENCIA = 15;    // cada cuánto repinto, para que el ⚫ aparezca solo
+
+let presencias = {};            // id_usuario -> fila de la tabla 'presencia'
+let miPresencia = { disponibilidad:'disponible', mostrar_lobi:true };
+let miPresenciaHidratada = false;   // ¿ya leí mis ajustes guardados?
+let ultimoEscrito = '';             // lo último que escribí, para reconocer mi propio eco
+let desfaseReloj = 0;               // hora del servidor menos la mía, en ms
+let relojServidorListo = false;     // ¿ya aprendí el desfase?
+let presenciaPedido = 0;            // número de pedido (regla 13)
+let relojLatidoPres = null, relojRepintarPres = null, canalPresencia = null;
+let relojPresenciaRepaso = null;    // el repaso de red de seguridad
+
+function ahoraServidor(){ return Date.now() + desfaseReloj; }
+
+/* Los cuatro estados posibles. Están acá arriba y no adentro de la función
+   para que sean UNA sola definición: si mañana cambia el color del ⚫, cambia
+   en todos los lugares donde se dibuja. */
+const PRES = {
+  conectado:    { clave:'conectado',    emoji:'🟢', texto:'Conectado',    color:'var(--color-success)'   },
+  ocupado:      { clave:'ocupado',      emoji:'🔴', texto:'Ocupado',      color:'var(--color-danger)'    },
+  en_lobi:      { clave:'en_lobi',      emoji:'🎮', texto:'En un Lobi',   color:'var(--color-secondary)' },
+  desconectado: { clave:'desconectado', emoji:'⚫', texto:'Desconectado', color:'var(--color-muted)'     },
+};
+
+/* El cálculo. Devuelve null cuando NO SÉ nada de esta persona (nunca abrió la
+   versión nueva de Lobby): en ese caso no dibujo nada, que es más honesto que
+   pintarla de ⚫ como si se hubiera desconectado.
+
+   EL ORDEN IMPORTA, y es este a propósito:
+
+     1. ⚫ Desconectado  — si no está, no está. Gana sobre todo lo demás,
+                           porque "Ocupado" de alguien que cerró el navegador
+                           hace tres horas sería mentira.
+     2. 🔴 Ocupado       — lo eligió la persona a mano. Lobby NUNCA se lo pisa:
+                           ni estando en un Lobi deja de verse Ocupado.
+     3. 🎮 En un Lobi    — y solo si dejó el interruptor de privacidad prendido.
+     4. 🟢 Conectado     — está acá y no dijo nada más. */
+function presenciaDe(id_usuario){
+  if(!id_usuario) return null;
+  const f = presencias[id_usuario];
+  if(!f) return null;                       // no sé nada: no invento
+  if(f.activo === false) return PRES.desconectado;   // cerró sesión a propósito
+  const marca = f.visto_en ? new Date(f.visto_en).getTime() : 0;
+  if(relojServidorListo && marca){
+    const silencio = (ahoraServidor() - marca) / 1000;
+    if(silencio > SEG_SILENCIO_OFFLINE) return PRES.desconectado;
+  }
+  if(f.disponibilidad === 'ocupado') return PRES.ocupado;
+  if(f.lobi_actual && f.mostrar_lobi) return PRES.en_lobi;
+  return PRES.conectado;
+}
+
+/* ¿Qué id tiene este jugador? Las tarjetas vienen de tres sitios distintos y
+   cada uno guarda el id con otro nombre; los mensajes privados y las amistades
+   ni siquiera lo guardan (esa es una de las deudas técnicas). Por eso, como
+   último recurso, lo busco por nombre en el directorio. */
+function idDeJugador(p){
+  if(!p) return null;
+  if(p.id_usuario) return p.id_usuario;
+  if(p.id_usuario_real) return p.id_usuario_real;
+  return idPorNombre(p.name);
+}
+function idPorNombre(nombre){
+  if(!nombre) return null;
+  if(nombre === state.displayName) return miId;
+  for(const id in directorioPerfiles){
+    const d = directorioPerfiles[id];
+    if(d && (d.nombre === nombre || d.nick === nombre)) return id;
+  }
+  const r = (realPlayers||[]).find(x => x.name === nombre);
+  return (r && r.id_usuario) ? r.id_usuario : null;
+}
+
+/* Los dos pedacitos de HTML que dibujan presencia. Salen VACÍOS y los llena
+   repintarPresencia(). Así el estado se resuelve al pintar y no al armar el
+   texto, y un cambio de estado no obliga a redibujar la pantalla entera. */
+function puntoPresencia(p){
+  const id = idDeJugador(p);
+  return id ? `<span class="on-dot" data-pres="${id}" data-pres-modo="punto" style="display:none"></span>` : '';
+}
+function textoPresencia(p, clase){
+  const id = idDeJugador(p);
+  return id ? `<span class="${clase||'pres-txt'}" data-pres="${id}" data-pres-modo="texto"></span>` : '';
+}
+/* Foto + puntito, en un envoltorio. Es la que usan las tarjetas de jugador. */
+function avatarConPunto(p, extra){
+  return `<div class="avwrap">${avatarDe(p, extra)}${puntoPresencia(p)}</div>`;
+}
+
+/* Repinta SOLO los puntitos y los textos que ya están en pantalla.
+   No llama a refrescarVista() a propósito (regla 6): si redibujara la vista
+   entera cada 15 segundos, te borraría lo que estás escribiendo en el chat y
+   te haría saltar el scroll. */
+function repintarPresencia(){
+  try{
+    document.querySelectorAll('[data-pres]').forEach(el=>{
+      const pr = presenciaDe(el.getAttribute('data-pres'));
+      if(el.getAttribute('data-pres-modo') === 'punto'){
+        if(!pr){ el.style.display = 'none'; return; }
+        el.style.display = '';
+        el.style.background = pr.color;
+        el.setAttribute('title', pr.texto);
+      }else{
+        el.textContent = pr ? (pr.emoji + ' ' + pr.texto) : '';
+        el.style.color  = pr ? pr.color : '';
+      }
+    });
+  }catch(e){ /* un puntito mal pintado no puede romper la app */ }
+}
+
+/* Mi latido: "sigo acá". De paso aprovecho la respuesta para dos cosas más:
+   aprender el desfase de reloj y guardar mi propia fila en el mapa, para que
+   yo me vea igual que me ven los demás.
+
+   Devuelve true solo si de verdad se guardó. El .select() del final es el
+   Pilar 2 de siempre: sin él, un escribir que no toca ninguna fila no da
+   error ni avisa nada, y creeríamos que guardamos algo que no se guardó. */
+/* FRENO DE MANO del adiós. Cerrar sesión hace varias cosas en fila, y una de
+   ellas (limpiarSalaLocal) late de nuevo para avisar que salí del Lobi. Sin
+   este freno, ese latido llegaría DESPUÉS del "activo:false" y me volvería a
+   encender el 🟢 justo cuando me estoy yendo. */
+let saliendoDeVerdad = false;
+
+async function latirPresencia(){
+  if(!miId || saliendoDeVerdad) return false;
+  try{
+    const fila = {
+      id_usuario: miId,
+      disponibilidad: miPresencia.disponibilidad === 'ocupado' ? 'ocupado' : 'disponible',
+      mostrar_lobi: miPresencia.mostrar_lobi !== false,
+      activo: true,
+      /* PRIVACIDAD DE VERDAD: si apagaste el interruptor, el Lobi no se
+         ESCONDE al dibujar — directamente NO SE GUARDA. Así no hay nada que
+         espiar, ni siquiera preguntándole a la base por la ventana de atrás. */
+      lobi_actual: (miPresencia.mostrar_lobi !== false && state.currentLobi) ? state.currentLobi.id : null
+    };
+    ultimoEscrito = JSON.stringify([fila.disponibilidad, fila.mostrar_lobi]);
+    const { data, error } = await sb.from('presencia')
+      .upsert(fila, { onConflict:'id_usuario' })
+      .select('visto_en');
+    if(error) return false;
+    if(!data || !data.length) return false;      // 0 filas = no se guardó
+    desfaseReloj = new Date(data[0].visto_en).getTime() - Date.now();
+    relojServidorListo = true;
+    presencias[miId] = Object.assign({}, fila, { visto_en: data[0].visto_en });
+    repintarPresencia();
+    return true;
+  }catch(e){ return false; }
+}
+
+/* Trae la presencia de todos. Lleva número de pedido (regla 13): si una
+   respuesta vieja llega tarde, se descarta en vez de pisar a la nueva. */
+async function cargarPresencias(){
+  const miPedido = ++presenciaPedido;
+  try{
+    const { data, error } = await sb.from('presencia').select('*');
+    if(error) return;
+    if(miPedido !== presenciaPedido) return;     // llegó tarde
+    const mapa = {};
+    (data||[]).forEach(f=>{ if(f.id_usuario) mapa[f.id_usuario] = f; });
+    presencias = mapa;
+    /* La PRIMERA vez leo mis propios ajustes guardados. Esto tiene que pasar
+       ANTES del primer latido: si latiera primero, escribiría los valores por
+       defecto y te borraría el 🔴 Ocupado que habías dejado puesto. */
+    const mia = mapa[miId];
+    if(mia && !miPresenciaHidratada){
+      miPresencia.disponibilidad = mia.disponibilidad === 'ocupado' ? 'ocupado' : 'disponible';
+      miPresencia.mostrar_lobi   = mia.mostrar_lobi !== false;
+      miPresenciaHidratada = true;
+    }
+    repintarPresencia();
+  }catch(e){}
+}
+
+function suscribirsePresencia(){
+  desuscribirsePresencia();
+  canalPresencia = sb.channel('presencia-global')
+    .on('postgres_changes', { event:'*', schema:'public', table:'presencia' }, (msg)=>{
+      const f = msg.new && msg.new.id_usuario ? msg.new : msg.old;
+      if(!f || !f.id_usuario) return;
+      if(msg.eventType === 'DELETE' || msg.event === 'DELETE'){ delete presencias[f.id_usuario]; }
+      else {
+        presencias[f.id_usuario] = f;
+        /* ¿Cambiaron MIS ajustes desde otro aparato (el celu, otra pestaña)?
+           Si lo que llega no es el eco de lo último que escribí yo, le hago
+           caso: manda el cambio más nuevo, no esta pestaña. */
+        if(f.id_usuario === miId){
+          const llega = JSON.stringify([f.disponibilidad, f.mostrar_lobi !== false]);
+          if(llega !== ultimoEscrito){
+            miPresencia.disponibilidad = f.disponibilidad === 'ocupado' ? 'ocupado' : 'disponible';
+            miPresencia.mostrar_lobi   = f.mostrar_lobi !== false;
+            ultimoEscrito = llega;
+            if(state.view === 'settings') refrescarVista();
+          }
+        }
+      }
+      repintarPresencia();
+    })
+    .subscribe();
+}
+function desuscribirsePresencia(){
+  if(canalPresencia){ try{ sb.removeChannel(canalPresencia); }catch(e){} canalPresencia=null; }
+}
+
+async function arrancarPresencia(){
+  pararPresencia();
+  /* Si entré recién creando la cuenta o iniciando sesión a mano, puede que
+     miId todavía no esté puesto. Lo pido yo mismo antes de seguir: sin id no
+     puedo latir, y sin latir nadie me ve nunca. */
+  if(!miId){
+    try{ const { data:{ user } } = await sb.auth.getUser(); if(user) miId = user.id; }catch(e){}
+  }
+  if(!miId) return;
+  await cargarPresencias();     // primero leo mis ajustes guardados…
+  await latirPresencia();       // …y recién después escribo
+  suscribirsePresencia();
+  relojLatidoPres   = setInterval(latirPresencia,   SEG_LATIDO_PRESENCIA   * 1000);
+  relojRepintarPres = setInterval(repintarPresencia, SEG_REPINTAR_PRESENCIA * 1000);
+  /* Red de seguridad: si el canal en vivo se cae sin avisar, igual nos
+     enteramos de los cambios con este repaso cada minuto y medio. */
+  relojPresenciaRepaso = setInterval(cargarPresencias, 90000);
+}
+function pararPresencia(){
+  if(relojLatidoPres){ clearInterval(relojLatidoPres); relojLatidoPres=null; }
+  if(relojRepintarPres){ clearInterval(relojRepintarPres); relojRepintarPres=null; }
+  if(relojPresenciaRepaso){ clearInterval(relojPresenciaRepaso); relojPresenciaRepaso=null; }
+  desuscribirsePresencia();
+}
+
+/* Al volver a la pestaña: late ya mismo (el navegador pudo congelarla y
+   saltarse varios latidos) y de paso traé la presencia fresca de los demás. */
+document.addEventListener('visibilitychange', function(){
+  if(!document.hidden && miId){ latirPresencia(); cargarPresencias(); }
+});
+
+/* ===== LOS CONTROLES (Ajustes → Personalización) ========================= */
+async function cambiarDisponibilidad(v){
+  const antes = miPresencia.disponibilidad;
+  miPresencia.disponibilidad = (v === 'ocupado') ? 'ocupado' : 'disponible';
+  if(state.view === 'settings') refrescarVista();
+  const ok = await latirPresencia();
+  if(!ok){
+    miPresencia.disponibilidad = antes;         // no se guardó: lo devuelvo como estaba
+    if(state.view === 'settings') refrescarVista();
+    toast('⚠️ No se pudo guardar tu estado');
+    return;
+  }
+  toast(miPresencia.disponibilidad === 'ocupado'
+    ? '🔴 Te pusimos como Ocupado'
+    : '🟢 Ya estás Disponible');
+}
+
+async function cambiarMostrarLobi(){
+  const antes = miPresencia.mostrar_lobi !== false;
+  miPresencia.mostrar_lobi = !antes;
+  if(state.view === 'settings') refrescarVista();
+  const ok = await latirPresencia();
+  if(!ok){
+    miPresencia.mostrar_lobi = antes;
+    if(state.view === 'settings') refrescarVista();
+    toast('⚠️ No se pudo guardar');
+    return;
+  }
+  toast(miPresencia.mostrar_lobi
+    ? '🎮 Ahora se ve cuando estás en un Lobi'
+    : '🔒 Tu Lobi queda en privado');
+}
+
 /* ====== EL VIGILANTE DEL LOBI (Pilar 3 · Problema 7) ==========================
    Antes: si el Lobi se borraba de Supabase, la app no se enteraba. Te quedabas
    adentro de una sala que ya no existía, chateando con otros fantasmas. 👻
@@ -2589,6 +2905,10 @@ function limpiarSalaLocal(){
   state.pendingLobi = null;
   renderActiveLobiSidebar();
   updateCenterNav();
+  /* Salí del Lobi: lo digo al instante, así nadie te sigue viendo 🎮 adentro
+     de un Lobi en el que ya no estás. OJO — esto es solo el puntito. La silla
+     la libera salirDelLobi(), que es otra cosa y no se toca (regla 5). */
+  latirPresencia();
 }
 
 function expulsarDeLobiMuerto(mensaje){
@@ -3335,6 +3655,10 @@ async function goApp(view){
      pestaña buscando), la limpio al arrancar. Tu caso raro "usuario que cierra
      la página mientras busca": empezás limpio, no fantasma. (Mejora 4) */
   limpiarMiColaVieja();
+  /* Presencia: leo mis ajustes guardados, digo "acá estoy" y me sintonizo para
+     ver los 🟢 🔴 🎮 ⚫ de los demás en vivo. (Mejora 6)
+     Va DESPUÉS de cargarMiPerfil() porque necesita miId. */
+  arrancarPresencia();
   /* ¿Ya estaba dentro de un Lobi? Se lo pregunto a Supabase, no a esta pestaña.
      Así funciona en otra pestaña, otro navegador u otro dispositivo. (Pilar 4) */
   restaurarMiLobiActivo();
@@ -3742,8 +4066,8 @@ function htmlResultados(){
 }
 
 function playerCard(p){
-  return `<div class="player-card">${avatarDe(p)}
-    <div class="pinfo"><div class="pname">${escapeHtml(p.name)} <span class="star-rating-mini">★ ${p.rating}</span></div><div class="pgame">${escapeHtml(p.game)}</div>
+  return `<div class="player-card">${avatarConPunto(p)}
+    <div class="pinfo"><div class="pname">${escapeHtml(p.name)} <span class="star-rating-mini">★ ${p.rating}</span></div>${textoPresencia(p)}<div class="pgame">${escapeHtml(p.game)}</div>
       <div class="pcompat" style="color:${compatColor(p.compat)}">${p.compat}% · ${compatLabel(p.compat)}</div></div>
     <div class="pactions"><button class="mini-btn" onclick="viewFullProfile('${p.name}')" title="Ver perfil"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0116 0v1"/></svg></button>
       <button class="mini-btn" onclick="openConversation('${p.name}')" title="Mensaje"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg></button>
@@ -3859,7 +4183,7 @@ function cambiarPestanaMensajes(cual){
 
 function messagesView(){
   const names=Object.keys(dms);
-  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':(last.invite?'🎮 Invitación a un Lobi':escapeHtml(last.text||''))}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer">${avatarDe(p)}<div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
+  const list=names.map(n=>{const p=findPlayer(n);const last=dms[n][dms[n].length-1];const preview=last?(`${last.from==='me'?'Tú: ':''}${(last.img||last.imagen)?'📷 Imagen':(last.invite?'🎮 Invitación a un Lobi':escapeHtml(last.text||''))}`):'Nueva conversación';return `<div class="player-card" onclick="openConversation('${n}')" style="cursor:pointer">${avatarConPunto(p)}<div class="pinfo"><div class="pname">${n}</div><div class="pgame">${preview}</div></div></div>`;}).join('');
   if(!openDM){
     const listaChats = list || '<div class="side-empty" style="max-width:400px">Todavía no tenés conversaciones. Agregá a alguien y escribile. 💬</div>';
 
@@ -3895,7 +4219,7 @@ function messagesView(){
   const thread=dms[openDM].map(m=>renderDMmsg(m,p)).join('');
   const canInvite=state.currentLobi&&state.currentLobi.members.length<topeDe(state.currentLobi)&&friends.includes(openDM)&&!state.currentLobi.members.some(mm=>mm.name===openDM);
   return `<div class="dm-open">
-    <div class="dm-open-head"><button class="mini-btn" onclick="cerrarDM()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>${avatarDe(p,'style="width:42px;height:42px;border-radius:50%"')}<div style="flex:1"><div style="font-weight:700;font-size:16px">${openDM}</div><div style="font-size:12px;color:var(--color-success)">En línea</div></div>
+    <div class="dm-open-head"><button class="mini-btn" onclick="cerrarDM()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>${avatarDe(p,'style="width:42px;height:42px;border-radius:50%"')}<div style="flex:1"><div style="font-weight:700;font-size:16px">${openDM}</div>${textoPresencia(p,'pres-inline')}</div>
       ${canInvite?`<button class="btn btn-primary btn-sm" onclick="sendInvite('${openDM}')">+ Invitar a mi Lobi</button>`:''}</div>
     <div id="dm-thread" class="dm-thread">${thread}</div>
     <div class="chat-input" style="border:none;padding:14px 0 0">
@@ -4003,7 +4327,7 @@ function fullProfileView(name){
             nick:(bruto.name||'jugador').toLowerCase(), ...bruto };
   if(!Array.isArray(p.goals)) p.goals=['Jugar'];
   const dash=2*Math.PI*33;const off=dash*(1-p.compat/100);
-  return `<div class="profile-banner"></div><div class="profile-head">${avatarDe(p,'class="pav"')}<div class="pmeta"><h2>${escapeHtml(p.name)}</h2><div class="psub">🇨🇷 ${escapeHtml(p.pais)} · @${escapeHtml(p.nick)}</div></div>
+  return `<div class="profile-banner"></div><div class="profile-head">${avatarDe(p,'class="pav"')}<div class="pmeta"><h2>${escapeHtml(p.name)}</h2><div class="psub">🇨🇷 ${escapeHtml(p.pais)} · @${escapeHtml(p.nick)}</div>${textoPresencia(p)}</div>
     <div class="profile-actions"><button class="btn btn-secondary btn-sm" onclick="openConversation('${p.name}')"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4L3 21l1.1-4.5A8.4 8.4 0 1121 11.5z"/></svg> Mensaje</button>${botonAmistad(p.name)}</div></div>
     <div class="compat-banner"><div class="compat-ring"><svg width="78" height="78"><circle cx="39" cy="39" r="33" fill="none" stroke="#2A2A35" stroke-width="7"/><circle cx="39" cy="39" r="33" fill="none" stroke="${compatColor(p.compat)}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${dash}" stroke-dashoffset="${off}"/></svg><span class="pct">${p.compat}%</span></div>
       <div class="ctext"><h4 style="color:${compatColor(p.compat)}">${compatLabel(p.compat)} contigo</h4><p>Comparten modo ${p.mode} y estilo ${p.style}. ${p.compat>=85?'Encajarían muy bien en un Lobi.':'Podrían jugar bien juntos.'}</p></div></div>
@@ -4308,7 +4632,39 @@ function ajustesPersonalizacion(){
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
           <div><div style="font-size:14px;font-weight:600">Tema de la app</div><div style="font-size:12.5px;color:var(--color-muted)">Claro u oscuro, siempre con las luces moradas.</div></div>
           <button class="btn btn-secondary btn-sm" onclick="toggleTheme()"><span id="set-theme-label">${state.theme==='dark'?'Oscuro':'Claro'}</span> · cambiar</button>
-        </div></div>`;
+        </div></div>
+      ${ajustesPresencia()}`;
+}
+
+/* 🟢 Presencia y privacidad (Mejora 6) — vive acá, en Personalización, que es
+   lo que elegiste. Dos controles y nada más:
+
+     · Disponible / Ocupado  → lo elegís vos y Lobby no te lo pisa nunca
+     · Mostrar mi Lobi       → si lo apagás, el Lobi no se esconde: no se guarda */
+function ajustesPresencia(){
+  const ocupado = miPresencia.disponibilidad === 'ocupado';
+  const mostrar = miPresencia.mostrar_lobi !== false;
+  return `
+      <div class="detail-card"><h5>Presencia y privacidad</h5>
+        <div class="form-group" style="margin-bottom:18px">
+          <div class="glabel">Cómo te ven ahora</div>
+          <div class="ghint">Si te ponés Ocupado, se queda así aunque entres a un Lobi. Lobby nunca te lo cambia.</div>
+          <div class="chip-grid" style="margin-top:10px">
+            <button class="chip ${ocupado?'':'sel'}" onclick="cambiarDisponibilidad('disponible')">🟢 Disponible</button>
+            <button class="chip ${ocupado?'sel':''}" onclick="cambiarDisponibilidad('ocupado')">🔴 Ocupado</button>
+          </div>
+        </div>
+        <div class="switch-row" onclick="cambiarMostrarLobi()">
+          <div><div style="font-size:14px;font-weight:600">Mostrar cuando estoy en un Lobi</div>
+            <div class="switch-sub">${mostrar
+              ? 'Tus amigos ven 🎮 En un Lobi. Apagalo y solo te ven 🟢 Conectado.'
+              : 'Apagado: nadie ve en qué Lobi estás. Ni se guarda en la base.'}</div></div>
+          <div class="switch ${mostrar?'on':''}"><div class="switch-dot"></div></div>
+        </div>
+        <div style="font-size:12px;color:var(--color-muted);margin-top:16px;line-height:1.5">
+          Si cerrás el navegador o se te cae el internet, en 2 minutos apareces ⚫ Desconectado solo. No hace falta que avises nada.
+        </div>
+      </div>`;
 }
 
 /* ⚙️ Quién sos y tu seguridad */
@@ -4397,6 +4753,9 @@ function enterLobi(lobi,created){
   // En Lobis de ejemplo me agrego local; en los reales, los miembros vienen de la nube
   if(!esReal && !c.members.some(m=>m.isMe))c.members.unshift({name:state.displayName,role:'Tú',seed:'Arturo',bg:'c84dff',compat:100,isMe:true});
   state.currentLobi=c;
+  /* Aviso al instante que entré a un Lobi: si esperara el latido de 30 seg,
+     tus amigos te verían 🟢 Conectado media canción después de entrar. */
+  latirPresencia();
   if(!state.chatLog[c.id]){
     state.chatLog[c.id]=[];
     if(!created && !esReal){state.chatLog[c.id].push({type:'msg',seed:'Daniel',bg:'3da5ff',who:'Daniel_Mc',text:'¡Hola! Listos para construir? 🏗️',me:false});state.chatLog[c.id].push({type:'msg',seed:'Sofi',bg:'c84dff',who:'Sofi_Gamer',text:'siii, yo traigo madera y piedra',me:false});}
@@ -4781,7 +5140,8 @@ function roomView(){
     const esLider = l.id_creador && m.id_usuario_real && m.id_usuario_real===l.id_creador;
     const corona = esLider ? ` <svg class="lider-crown" fill="#fbbf24" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 2h14v2H5v-2z"/></svg>` : '';
     const rol = esLider ? 'Líder del Lobi' : escapeHtml(m.role);
-    return `<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${avatarDe(m)}<span class="on-dot"></span></div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}${corona}</div><div class="mrole ${esLider?'mrole-lider':''}">${rol}</div></div></div>`;
+    /* El puntito ya no es verde fijo: ahora dice la verdad (Mejora 6). */
+    return `<div class="member" data-pop onclick="showProfilePopover(event,'${m.name}')"><div class="avwrap">${avatarDe(m)}${puntoPresencia(m)}</div><div><div class="mname">${escapeHtml(m.name)}${m.isMe?' (tú)':''}${corona}</div><div class="mrole ${esLider?'mrole-lider':''}">${rol}</div></div></div>`;
   }).join('');
   const libres = Math.max(0, topeDe(l) - l.members.length);   // sillas libres reales (Problema 10)
   let inviteSlot = '';
@@ -5700,12 +6060,13 @@ function showProfilePopover(e,name){
   const cat=GAME_CATALOG[gid];
   const gameLabel=cat&&cat.logo?`<img src="${cat.logo}" style="height:12px;vertical-align:middle"> · ${state.currentLobi.mode}`:`${cat?cat.name:'Minecraft'} · ${state.currentLobi?state.currentLobi.mode:''}`;
   const pop=document.getElementById('popover');
-  pop.innerHTML=`<div class="pop-banner"></div>${avatarDe(p,'class="pop-av"')}<div class="pop-body"><div class="pop-name">${p.name}${me?' (tú)':''}</div><div class="pop-sub">★ ${p.rating} · ${gameLabel}</div>${me?'':`<div class="pop-compat"><span>Compatibilidad contigo</span><b style="color:${compatColor(p.compat)}">${p.compat}%</b></div>`}
+  pop.innerHTML=`<div class="pop-banner"></div>${avatarDe(p,'class="pop-av"')}<div class="pop-body"><div class="pop-name">${p.name}${me?' (tú)':''}</div><div class="pop-sub">★ ${p.rating} · ${gameLabel}</div>${textoPresencia(p)}${me?'':`<div class="pop-compat"><span>Compatibilidad contigo</span><b style="color:${compatColor(p.compat)}">${p.compat}%</b></div>`}
     <div style="font-size:11px;color:var(--color-muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">En este Lobi</div>
     <div class="pop-tags"><span class="tag pri">${state.currentLobi?state.currentLobi.mode:p.mode}</span><span class="tag pri">${p.style}</span><span class="tag">${p.level}</span></div>
     ${me?'':`<div class="pop-actions"><button class="btn btn-secondary btn-sm" style="flex:1" onclick="openConversation('${p.name}')">Mensaje</button><button class="btn btn-secondary btn-sm" style="flex:1" onclick="viewFullProfile('${p.name}')">Ver perfil</button></div>
     <div class="pop-actions" style="margin-top:8px">${botonAmistad(p.name)}</div>`}</div>`;
-  resolverAvatares();   // el popover se dibuja solo, sin pasar por navTo()
+  resolverAvatares();      // el popover se dibuja solo, sin pasar por navTo()
+  repintarPresencia();     // …y por lo mismo le tengo que pintar la presencia a mano
   pop.classList.add('active');
   const px=Math.min(e.clientX+10,window.innerWidth-300),py=Math.min(e.clientY-10,window.innerHeight-360);
   pop.style.left=Math.max(12,px)+'px';pop.style.top=Math.max(12,py)+'px';
@@ -6766,6 +7127,7 @@ function navTo(view){
   document.querySelectorAll('.mnav-item[data-mview]').forEach(n=>n.classList.toggle('active',n.dataset.mview===view));
   content.scrollTop=0;
   resolverAvatares();   // reemplaza los robots por fotos reales donde las haya (Bug A)
+  repintarPresencia();  // y llena los puntitos y textos de presencia (Mejora 6)
 }
 
 /* ====== EL PORTERO (sesión persistente) =====================================
@@ -6807,6 +7169,14 @@ async function revisarSesionGuardada(){
 async function cerrarSesion(){
   try{
     if(enCola) await cancelarBusqueda(false);   // no dejo mi lugar en la cola (Mejora 4)
+    /* Me apago a propósito (Mejora 6). Cerrar sesión es distinto a cerrar el
+       navegador: acá SÍ puedo avisar, así que aparezco ⚫ al instante en vez
+       de quedar 2 minutos en verde. */
+    saliendoDeVerdad = true;        // a partir de acá, ningún latido más
+    pararPresencia();
+    if(miId){
+      try{ await sb.from('presencia').update({ activo:false, lobi_actual:null }).eq('id_usuario', miId); }catch(e){}
+    }
     const lobiId = state.currentLobi ? state.currentLobi.id : null;
     limpiarSalaLocal();
     if(lobiId && lobiId.startsWith('real-')){
